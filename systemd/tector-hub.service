@@ -1,0 +1,23 @@
+[Unit]
+Description=Tector Hub - servidor de la app de administracion de LSD-Tectors
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USUARIO__
+WorkingDirectory=__BASE_PATH__
+EnvironmentFile=/etc/tector-hub/entorno
+ExecStart=__BASE_PATH__/.venv/bin/uvicorn servidor.main:app --host 127.0.0.1 --port 8099
+Restart=on-failure
+RestartSec=5
+
+# El servicio solo necesita leer su repo, escribir su base y llamar a rclone.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=__BASE_PATH__/datos
+
+[Install]
+WantedBy=multi-user.target

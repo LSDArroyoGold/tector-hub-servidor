@@ -1,0 +1,10 @@
+# Python 3.10 o mayor (se usa la sintaxis `str | None` en los modelos).
+# Bookworm trae 3.11, asi que en una Raspberry o un VPS reciente no hay que
+# hacer nada especial.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+PyJWT==2.10.1
+# bcrypt directo, sin passlib: passlib esta sin mantener desde 2020 y su
+# deteccion de version rompe con bcrypt 4.x. Ver servidor/auth.py.
+bcrypt==4.2.1

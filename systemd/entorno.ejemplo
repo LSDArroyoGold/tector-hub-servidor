@@ -1,0 +1,20 @@
+# Copiar a /etc/tector-hub/entorno (chmod 600, root:root) y completar.
+#
+# TECTOR_CLAVE_JWT es lo unico realmente obligatorio en produccion: sin esto
+# el servidor genera una clave al azar en cada arranque y todas las sesiones
+# de la app se cortan cada vez que el servicio se reinicia.
+# Generar con:  python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+TECTOR_CLAVE_JWT=
+
+# Cuanto dura la sesion de la app, en horas. 720 = 30 dias.
+TECTOR_HORAS_TOKEN=720
+
+# rclone. El archivo de configuracion tiene que ser el del usuario que corre
+# el servicio, ya autorizado contra el Drive del proyecto.
+TECTOR_RCLONE=/usr/bin/rclone
+TECTOR_RCLONE_CONFIG=/home/lsd/.config/rclone/rclone.conf
+TECTOR_RCLONE_REMOTE=gdrive
+
+# Origenes permitidos para la app. Con app nativa alcanza con *; si en algun
+# momento hay cliente web, poner el dominio exacto.
+TECTOR_CORS=*

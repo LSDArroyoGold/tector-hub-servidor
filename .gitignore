@@ -1,0 +1,16 @@
+# La base tiene usuarios y hashes de contraseña. Nunca al repo.
+datos/
+*.db
+*.db-wal
+*.db-shm
+
+# rclone.conf tiene credenciales OAuth reales. Ya hubo un incidente en este
+# proyecto por commitear una: GitHub la detecto via secret scanning y Google
+# revoco el token en silencio, rompiendo la sincronizacion sin aviso.
+rclone.conf
+entorno
+.env
+
+__pycache__/
+*.pyc
+.venv/
