@@ -22,6 +22,7 @@ proyecto ya usa rclone en los dispositivos, y el equipo ya sabe autorizarlo.
 import json
 import re
 import subprocess
+import sys
 import time
 from threading import Lock
 
@@ -129,13 +130,25 @@ def invalidar(prefijo=''):
 def estado(drive_path):
     """estado.json del dispositivo, o None si todavia no lo subio.
 
-    Un Tector que viene de la 2.0 nunca escribio este archivo. La app tiene
-    que seguir andando con esos equipos, en modo degradado, asi que un None
-    aca no es un error.
+    Un Tector que viene de la 2.0 nunca escribio este archivo, y uno con
+    software 1.1 tampoco. La app tiene que seguir andando con esos equipos,
+    en modo degradado, asi que un None aca no siempre es un error.
+
+    Pero "no esta el archivo" y "rclone esta roto" tambien terminaban los dos
+    en None, y desde afuera no habia forma de distinguirlos: la app decia
+    "todavia no publico su estado" con la misma cara en los dos casos. El
+    motivo se escribe al log del servicio, que es donde uno lo va a buscar.
     """
     try:
         return json.loads(leer_texto(f'{drive_path}/estado.json'))
-    except (ErrorDrive, ValueError):
+    except ErrorDrive as e:
+        if 'not found' not in str(e).lower():
+            print(f'[drive] no se pudo leer {drive_path}/estado.json: {e}',
+                  file=sys.stderr)
+        return None
+    except ValueError as e:
+        print(f'[drive] {drive_path}/estado.json no es JSON valido: {e}',
+              file=sys.stderr)
         return None
 
 

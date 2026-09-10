@@ -1,0 +1,320 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Prueba de integración: el servidor de verdad, contra un Drive de mentira.
+
+QUÉ CUBRE QUE probar_api.py NO
+------------------------------
+probar_api.py usa TestClient y nunca toca `drive.py`, así que todo lo que
+depende de Drive --el parseo de los nombres de archivo, el armado del zip, la
+escritura de horarios, la lectura de estado.json-- no estaba probado por
+nadie. Y es justo la parte que se rompe en el despliegue.
+
+Acá se levanta uvicorn de verdad, con `pruebas/rclone_falso.py` haciendo de
+rclone sobre una carpeta local con la estructura real de un Tector. Se le
+pega por HTTP, como lo haría la app.
+
+    python3 pruebas/probar_integracion.py
+"""
+import io
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from datetime import date, timedelta
+from pathlib import Path
+
+RAIZ = Path(__file__).resolve().parent.parent
+fallos = []
+
+
+def ck(nombre, cond, extra=''):
+    print(f'  {"OK  " if cond else "FALLA"}  {nombre}' + (f'  [{extra}]' if extra else ''))
+    if not cond:
+        fallos.append(nombre)
+
+
+def armar_drive(base):
+    """Un Drive con la estructura real de un Tector 2.1."""
+    raiz = base / 'Tector 2'
+    hoy = date.today()
+    especies = [('Rufous_Hornero', 92), ('Great_Kiskadee', 78),
+                ('Rufous-collared_Sparrow', 61)]
+    creados = 0
+    for d in range(3):
+        f = (hoy - timedelta(days=d)).isoformat()
+        for esp, conf in especies:
+            carpeta = raiz / 'Detecciones' / f / esp
+            carpeta.mkdir(parents=True, exist_ok=True)
+            # El nombre real lleva ":" en la hora. Windows no deja crear un
+            # archivo así, y rclone_falso.py lo traduce a %3A en el disco: el
+            # servidor sigue viendo el formato de verdad, que es lo que se
+            # quiere probar.
+            nombre = f'{esp}-{conf}-{f}-tectornet-09:5{d}:26.mp3'.replace(':', '%3A')
+            # No es un mp3 real: al servidor le da igual, lo pasa tal cual.
+            (carpeta / nombre).write_bytes(b'ID3' + bytes(400))
+            creados += 1
+
+    (raiz / 'estado.json').write_text(json.dumps({
+        'version_formato': 1, 'serie': '4417',
+        'generado': f'{hoy.isoformat()}T19:12:00',
+        'estado': 'en_espera', 'ventana_activa': None,
+        'proxima_ventana': {'cual': 'atardecer', 'hora': '18:09'},
+        'cierre_forzado': False,
+        'horarios': {'auto_sync': True,
+                     'amanecer': {'inicio': '08:18', 'fin': '10:18'},
+                     'atardecer': {'inicio': '18:09', 'fin': '20:09'},
+                     'duracion_amanecer_h': '2', 'duracion_atardecer_h': '2',
+                     'offset_amanecer_min': '0', 'offset_atardecer_min': '0'},
+        'ubicacion': {'lat': '-34.6131', 'lon': '-58.3772'},
+        'bateria': {'voltaje_v': 7.42, 'corriente_ma': 468, 'throttled': '0x0'},
+        'detecciones_hoy': 3, 'version_software': '2c4f1a9',
+        'drive_path': 'Tector 2',
+    }, ensure_ascii=False), encoding='utf-8')
+
+    (raiz / 'log_reciente.txt').write_text(
+        f'[{hoy.isoformat()} 08:18] INICIO ventana amanecer | Batería: N/A\n'
+        f'[{hoy.isoformat()} 10:18] FIN ventana amanecer | Batería: N/A | '
+        'Detecciones subidas: 3 | Próxima ventana: 18:09\n', encoding='utf-8')
+    return creados
+
+
+def puerto_libre():
+    s = socket.socket()
+    s.bind(('127.0.0.1', 0))
+    p = s.getsockname()[1]
+    s.close()
+    return p
+
+
+def pedir(url, token=None, metodo='GET', cuerpo=None, crudo=False):
+    req = urllib.request.Request(url, method=metodo)
+    if token:
+        req.add_header('Authorization', 'Bearer ' + token)
+    if cuerpo is not None:
+        req.add_header('Content-Type', 'application/json')
+        req.data = json.dumps(cuerpo).encode()
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, (r.read() if crudo else json.loads(r.read()))
+    except urllib.error.HTTPError as e:
+        return e.code, None
+
+
+def main():
+    for f in (sys.stdout, sys.stderr):
+        try:
+            f.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
+
+    tmp = Path(tempfile.mkdtemp(prefix='tector-integracion-'))
+    drive = tmp / 'drive'
+    drive.mkdir()
+    n = armar_drive(drive)
+    print(f'Drive de mentira en {drive}  ({n} detecciones)\n')
+
+    # rclone.bat: subprocess en Windows no ejecuta un .py directo.
+    #
+    # El script se copia antes a la carpeta temporal, que tiene ruta ASCII.
+    # Los .bat los interpreta Windows con la codepage OEM, no UTF-8, y la
+    # ruta del repo tiene un acento ("Física"): escrita en el .bat, el
+    # intérprete la leía mal y apuntaba a un archivo inexistente. El error
+    # aparecía como "no se pudo leer estado.json", que no ayuda en nada.
+    falso = tmp / 'rclone_falso.py'
+    shutil.copy2(RAIZ / 'pruebas' / 'rclone_falso.py', falso)
+    bat = tmp / 'rclone.bat'
+    bat.write_text(f'@echo off\n"{sys.executable}" "{falso}" %*\n',
+                   encoding='ascii')
+
+    entorno = {
+        **os.environ,
+        'TECTOR_DB': str(tmp / 'prueba.db'),
+        'TECTOR_CLAVE_JWT': 'clave-larga-solo-para-la-prueba-de-integracion',
+        'TECTOR_RCLONE': str(bat) if os.name == 'nt' else str(falso),
+        'TECTOR_RCLONE_CONFIG': str(tmp / 'rclone.conf'),
+        'TECTOR_DRIVE_FALSO': str(drive),
+        'TECTOR_CACHE_S': '0',      # sin cache: cada pedido va al "Drive"
+        'PYTHONPATH': str(RAIZ),
+    }
+    (tmp / 'rclone.conf').write_text('', encoding='utf-8')
+
+    # La cuenta se crea antes de levantar el servicio, contra la misma base.
+    subprocess.run([sys.executable, '-m', 'scripts.crear_usuario',
+                    'd.arroyo', 'Diego Arroyo', '--clave', 'clave-de-prueba'],
+                   cwd=RAIZ, env=entorno, capture_output=True, check=True)
+
+    puerto = puerto_libre()
+    # La salida va a un archivo y no a un pipe: leer un pipe a medias puede
+    # bloquear, y lo que se necesita es poder mirarla DESPUES de un fallo.
+    registro = tmp / 'servidor.log'
+    fsal = open(registro, 'w', encoding='utf-8', errors='replace')
+    servidor = subprocess.Popen(
+        [sys.executable, '-m', 'uvicorn', 'servidor.main:app',
+         '--host', '127.0.0.1', '--port', str(puerto), '--log-level', 'warning'],
+        cwd=RAIZ, env=entorno, stdout=fsal, stderr=subprocess.STDOUT, text=True)
+
+    base = f'http://127.0.0.1:{puerto}'
+    try:
+        # Esperar a que levante.
+        for _ in range(60):
+            try:
+                if pedir(base + '/salud')[0] == 200:
+                    break
+            except Exception:
+                pass
+            if servidor.poll() is not None:
+                print('El servidor murió al arrancar:\n' + servidor.stdout.read())
+                return 1
+            time.sleep(0.5)
+        else:
+            print('El servidor no respondió en 30 s.')
+            return 1
+
+        print('-- el servidor levanta y responde --')
+        ck('GET /salud', pedir(base + '/salud')[0] == 200)
+        ck('/docs se sirve', pedir(base + '/openapi.json')[0] == 200)
+
+        print('\n-- login por HTTP de verdad --')
+        cod, r = pedir(base + '/auth/login', metodo='POST',
+                       cuerpo={'usuario': 'd.arroyo', 'clave': 'clave-de-prueba'})
+        ck('login correcto', cod == 200 and bool(r and r.get('token')))
+        tk = r['token']
+        ck('clave mala rechazada',
+           pedir(base + '/auth/login', metodo='POST',
+                 cuerpo={'usuario': 'd.arroyo', 'clave': 'no'})[0] == 401)
+
+        print('\n-- registro del dispositivo y vinculacion --')
+        cod, r = pedir(base + '/dispositivos/registrar', metodo='POST',
+                       cuerpo={'serie': '4417', 'id_hardware': 'hw-INT',
+                               'drive_path': 'Tector 2'})
+        ck('el Tector se registra', cod == 200 and r['serie'] == '4417')
+        ck('la cuenta lo vincula',
+           pedir(base + '/dispositivos/vincular', tk, 'POST',
+                 {'serie': '4417', 'apodo': 'Reserva'})[0] == 200)
+
+        print('\n-- lectura de Drive (esto es lo que no cubria probar_api) --')
+        cod, r = pedir(base + '/dispositivos', tk)
+        d0 = r['dispositivos'][0]
+        ck('estado.json se lee y se parsea',
+           bool(d0['estado']) and d0['estado']['estado'] == 'en_espera')
+        ck('trae la proxima ventana',
+           d0['estado']['proxima_ventana']['hora'] == '18:09')
+
+        cod, r = pedir(base + '/dispositivos/4417/detecciones', tk)
+        ck('lista las detecciones de Drive', len(r['detecciones']) == 9,
+           str(len(r['detecciones'])))
+        det = r['detecciones'][0]
+        ck('parsea especie del nombre de archivo',
+           det['especie'] in ('Rufous Hornero', 'Great Kiskadee',
+                              'Rufous-collared Sparrow'), det['especie'])
+        ck('parsea la confianza', isinstance(det['confianza'], int))
+        ck('vienen de la mas reciente a la mas vieja',
+           r['detecciones'][0]['fecha'] >= r['detecciones'][-1]['fecha'])
+
+        cod, r = pedir(base + '/dispositivos/4417/fechas', tk)
+        ck('lista los dias con detecciones', len(r['fechas']) == 3)
+
+        cod, r = pedir(base + '/dispositivos/4417/estadisticas', tk)
+        ck('calcula estadisticas sobre datos reales', r['total'] == 9, str(r['total']))
+        ck('el histograma tiene 24 horas', len(r['histograma_horas']) == 24)
+        ck('cuenta 3 especies', r['especies_distintas'] == 3)
+
+        print('\n-- audio y descargas --')
+        import urllib.parse
+        q = urllib.parse.quote(det['ruta'])
+        cod, datos = pedir(f'{base}/dispositivos/4417/audio?ruta={q}', tk, crudo=True)
+        ck('sirve el audio', cod == 200 and datos.startswith(b'ID3'),
+           f'{len(datos)} bytes')
+        cod, zip_ = pedir(
+            f'{base}/dispositivos/4417/descargar?fecha={det["fecha"]}', tk, crudo=True)
+        ck('arma el zip de un dia', cod == 200 and zip_[:2] == b'PK',
+           f'{len(zip_)} bytes')
+
+        print('\n-- escritura: horarios --')
+        cod, r = pedir(base + '/dispositivos/4417/horarios', tk, 'PUT', {
+            'auto_sync': False, 'inicio_amanecer': '07:30',
+            'duracion_amanecer_h': 1.5, 'inicio_atardecer': '18:00',
+            'duracion_atardecer_h': 2})
+        ck('guarda los horarios', cod == 200 and r['ok'])
+        ck('calcula el fin del amanecer', r['fin_amanecer'] == '09:00',
+           r.get('fin_amanecer'))
+        ck('avisa que NO se aplico todavia', r['aplicado'] is False)
+        escrito = (drive / 'Tector 2' / 'config_horarios.txt').read_text(encoding='utf-8')
+        ck('el archivo quedo escrito en Drive',
+           'INICIO_AMANECER=07:30' in escrito and 'FIN_AMANECER=09:00' in escrito)
+        ck('y con el formato que espera el dispositivo',
+           'AUTO_SYNC=OFF' in escrito and 'DURACION_AMANECER_SYNC=1.5' in escrito)
+
+        print('\n-- escritura: BirdWeather --')
+        cod, r = pedir(base + '/dispositivos/4417/birdweather', tk, 'PUT',
+                       {'token': 'a3f9c0de-1234'})
+        ck('guarda el token', cod == 200 and r['conectado'])
+        bw = (drive / 'Tector 2' / 'config_birdweather.txt').read_text(encoding='utf-8')
+        ck('escribe BIRDWEATHER_ID', 'BIRDWEATHER_ID = a3f9c0de-1234' in bw)
+        ck('y NO manda coordenadas desde la app',
+           'LATITUDE =\n' in bw or 'LATITUDE =' in bw.split('\n')[-3])
+        cod, r = pedir(base + '/dispositivos/4417/birdweather', tk)
+        ck('nunca devuelve el token entero',
+           r['token_parcial'] and 'a3f9c0de-1234' not in str(r['token_parcial']),
+           str(r['token_parcial']))
+
+        print('\n-- reportes --')
+        cod, r = pedir(base + '/dispositivos/4417/reportes', tk, 'POST',
+                       {'ruta': det['ruta'], 'tipo': 'sin_ave'})
+        ck('se puede reportar contra una ruta real', cod == 200)
+        cod, r = pedir(base + '/reportes', tk)
+        ck('el reporte guarda la especie del archivo',
+           r['reportes'][0]['especie_detectada'] == det['especie'])
+
+        print('\n-- respaldo de la base --')
+        rr = subprocess.run([sys.executable, '-m', 'scripts.respaldar'],
+                            cwd=RAIZ, env={**entorno,
+                                           'TECTOR_RESPALDO_REMOTE': 'gdrive',
+                                           'TECTOR_RESPALDO_CARPETA': 'Respaldos'},
+                            capture_output=True, text=True, encoding='utf-8')
+        ck('el respaldo corre sin error', rr.returncode == 0,
+           (rr.stdout + rr.stderr).strip().split('\n')[-1][:70])
+        copias = list((drive / 'Respaldos').glob('*.db')) \
+            if (drive / 'Respaldos').exists() else []
+        ck('la copia quedo en el Drive de respaldo', len(copias) == 1)
+        if copias:
+            import sqlite3
+            con = sqlite3.connect(copias[0])
+            ck('la copia es un SQLite integro',
+               con.execute('PRAGMA integrity_check').fetchone()[0] == 'ok')
+            ck('y trae las cuentas',
+               con.execute('SELECT COUNT(*) FROM usuarios').fetchone()[0] == 1)
+            con.close()
+
+    finally:
+        servidor.terminate()
+        try:
+            servidor.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            servidor.kill()
+        fsal.close()
+        if fallos:
+            texto = registro.read_text(encoding='utf-8', errors='replace').strip()
+            if texto:
+                print(os.linesep + '-- salida del servidor --')
+                print(chr(10).join(texto.splitlines()[-25:]))
+
+    print()
+    if fallos:
+        print(f'{len(fallos)} prueba(s) fallaron:')
+        for f in fallos:
+            print('  - ' + f)
+        return 1
+    print('Todas las pruebas de integración pasaron.')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
