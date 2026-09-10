@@ -14,6 +14,8 @@ Dos clientes, con reglas distintas:
 
 Documentacion viva en /docs cuando el servidor esta corriendo.
 """
+import io
+import zipfile
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -331,6 +333,61 @@ def estadisticas(serie: str = Path(pattern=r'^\d{4}$'),
         'hallazgos': destacados[:5],
     }
 
+
+
+
+# ---------- descarga de carpetas ----------
+
+# Topes de una descarga en zip. Existen porque el zip se arma entero en
+# memoria antes de mandarlo: sin limite, pedir una carpeta grande desde el
+# telefono se lleva puesta la RAM del servidor (que puede ser un celular).
+MAX_ARCHIVOS = 300
+MAX_BYTES = 250 * 1024 * 1024
+
+
+@app.get('/dispositivos/{serie}/descargar', tags=['detecciones'])
+def descargar(serie: str = Path(pattern=r'^\d{4}$'),
+              fecha: str = Query(pattern=r'^\d{4}-\d{2}-\d{2}$'),
+              especie: str | None = Query(default=None, max_length=96),
+              usuario=Depends(usuario_actual)):
+    """Un zip con los audios de un día, o de una sola especie de ese día.
+
+    Lo arma el servidor y no la app porque los archivos estan en Drive: la
+    app tendria que bajar uno por uno y comprimirlos en el telefono.
+    """
+    disp = dispositivo_propio(serie, usuario)
+    detecciones = drive.detecciones(disp['drive_path'], fecha, especie,
+                                    limite=MAX_ARCHIVOS + 1)
+    if not detecciones:
+        raise HTTPException(404, 'No hay detecciones para descargar.')
+    if len(detecciones) > MAX_ARCHIVOS:
+        raise HTTPException(
+            413, f'Son más de {MAX_ARCHIVOS} archivos. Descargá una especie '
+                 'por vez.')
+
+    buf = io.BytesIO()
+    total = 0
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_STORED) as z:
+        # ZIP_STORED y no DEFLATE: los mp3 ya vienen comprimidos, deflate
+        # gastaria CPU para no bajar casi nada de tamaño.
+        for d in detecciones:
+            try:
+                datos = drive.leer_binario(d['ruta'])
+            except drive.ErrorDrive:
+                continue
+            total += len(datos)
+            if total > MAX_BYTES:
+                raise HTTPException(
+                    413, 'La carpeta pesa demasiado para descargarla de una. '
+                         'Descargá una especie por vez.')
+            z.writestr(f'{d["especie_carpeta"]}/{d["ruta"].split("/")[-1]}', datos)
+
+    nombre = f'Tector{serie}_{fecha}' + (f'_{especie}' if especie else '') + '.zip'
+    return Response(
+        content=buf.getvalue(),
+        media_type='application/zip',
+        headers={'Content-Disposition': f'attachment; filename="{nombre}"',
+                 'Content-Length': str(buf.tell())})
 
 # ---------- horarios ----------
 
