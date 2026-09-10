@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from . import auth, config, db, drive
+from . import auth, config, db, drive, especies
 
 app = FastAPI(
     title='Tector Hub',
@@ -399,6 +399,116 @@ def guardar_horarios(datos: Horarios, serie: str = Path(pattern=r'^\d{4}$'),
                        'siguiente, no desde la que este en curso.',
     }
 
+
+
+
+# ---------- especies ----------
+
+@app.get('/especies/{nombre}', tags=['especies'])
+def especie(nombre: str = Path(max_length=96), usuario=Depends(usuario_actual)):
+    """Nombre cientifico, foto y atribucion de una especie.
+
+    Se pide con el nombre tal cual viene en el archivo de la deteccion
+    ('Rufous_Hornero'), que es lo unico que el sistema conoce.
+    """
+    datos = especies.resolver(nombre)
+    if datos is None:
+        raise HTTPException(503, 'No se pudo consultar Wikimedia. Reintentá.')
+    return datos
+
+
+@app.get('/especies/{nombre}/foto', tags=['especies'])
+def foto_especie(nombre: str = Path(max_length=96)):
+    """La foto en si.
+
+    Sin token a proposito: es lo unico de toda la API que no es dato de
+    nadie --son fotos publicas de Wikimedia Commons, cacheadas. Pedir
+    autenticacion aca obligaria a que cada <img> del dashboard cargara con
+    JavaScript en vez de dejarselo al navegador, que ya sabe cachear.
+    """
+    contenido, mime = especies.foto(nombre)
+    if contenido is None:
+        raise HTTPException(404, 'Sin foto para esa especie.')
+    return Response(
+        content=contenido, media_type=mime,
+        headers={'Cache-Control': 'public, max-age=31536000, immutable'})
+
+
+# ---------- BirdWeather ----------
+
+class TokenBirdWeather(BaseModel):
+    # Vacio = desconectar. birdweather.py de TectorNet interpreta
+    # BIRDWEATHER_ID vacio como "estacion no conectada" y deja de postear.
+    token: str = Field(default='', max_length=128)
+
+
+PLANTILLA_BW = """# Escrito por Tector Hub el {sello}.
+#
+# Lo lee scripts/birdweather.py de TectorNet. El puente que lo baja de Drive
+# y lo instala en la carpeta del motor es scripts/aplicar_config_remota.sh de
+# LSD-Tector2.1, que corre al abrir cada ventana.
+#
+# LATITUDE y LONGITUDE las completa ese script con las coordenadas reales que
+# el propio dispositivo detecto: NO viajan desde la app, para que no se pueda
+# publicar una estacion en el lugar equivocado.
+BIRDWEATHER_ID = {token}
+LATITUDE =
+LONGITUDE =
+"""
+
+
+@app.get('/dispositivos/{serie}/birdweather', tags=['birdweather'])
+def leer_birdweather(serie: str = Path(pattern=r'^\d{4}$'),
+                     usuario=Depends(usuario_actual)):
+    disp = dispositivo_propio(serie, usuario)
+    token = ''
+    try:
+        crudo = drive.leer_texto(f'{disp["drive_path"]}/config_birdweather.txt')
+        for linea in crudo.splitlines():
+            if linea.strip().startswith('BIRDWEATHER_ID'):
+                token = linea.split('=', 1)[1].strip()
+    except drive.ErrorDrive:
+        pass
+
+    estado_disp = drive.estado(disp['drive_path']) or {}
+    ubicacion = estado_disp.get('ubicacion') or {}
+    return {
+        'conectado': bool(token),
+        # Nunca se devuelve el token entero: alcanza para que el usuario
+        # reconozca cual cargo, y no para reusarlo si le miran la pantalla.
+        'token_parcial': f'{token[:4]}…{token[-4:]}' if len(token) > 8 else None,
+        'mapa': f'https://app.birdweather.com/stations/{token}' if token else None,
+        'ubicacion': ubicacion,
+        'aplicado': (estado_disp.get('proxima_ventana') or {}).get('hora'),
+    }
+
+
+@app.put('/dispositivos/{serie}/birdweather', tags=['birdweather'])
+def guardar_birdweather(datos: TokenBirdWeather,
+                        serie: str = Path(pattern=r'^\d{4}$'),
+                        usuario=Depends(usuario_actual)):
+    """Deja el token en Drive. Igual que los horarios, NO lo aplica: el
+    dispositivo lo baja al abrir su proxima ventana."""
+    from datetime import datetime
+    disp = dispositivo_propio(serie, usuario)
+    token = datos.token.strip()
+
+    drive.escribir_texto(
+        f'{disp["drive_path"]}/config_birdweather.txt',
+        PLANTILLA_BW.format(sello=datetime.now().strftime('%d/%m/%Y %H:%M'),
+                            token=token))
+
+    proxima = ((drive.estado(disp['drive_path']) or {})
+               .get('proxima_ventana') or {}).get('hora')
+    return {
+        'ok': True,
+        'conectado': bool(token),
+        'aplicado': False,
+        'se_aplica_en': proxima,
+        'aviso': (f'El Tector toma el cambio cuando despierte, a las {proxima}.'
+                  if proxima else
+                  'El Tector toma el cambio en su proxima ventana.'),
+    }
 
 # ---------- vista combinada ----------
 
