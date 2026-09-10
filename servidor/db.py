@@ -159,7 +159,7 @@ def dispositivos_de(usuario_id):
     with sesion() as con:
         filas = con.execute(
             'SELECT d.serie, d.drive_path, d.ultimo_visto, d.primer_registro, '
-            '       v.apodo, v.vinculado '
+            '       d.id_hardware, v.apodo, v.vinculado '
             'FROM vinculos v JOIN dispositivos d ON d.serie = v.serie '
             'WHERE v.usuario_id = ? ORDER BY v.vinculado',
             (usuario_id,)).fetchall()
@@ -174,7 +174,7 @@ def dispositivo_del_usuario(usuario_id, serie):
     """
     with sesion() as con:
         fila = con.execute(
-            'SELECT d.serie, d.drive_path, d.ultimo_visto, v.apodo '
+            'SELECT d.serie, d.drive_path, d.ultimo_visto, d.id_hardware, v.apodo '
             'FROM vinculos v JOIN dispositivos d ON d.serie = v.serie '
             'WHERE v.usuario_id = ? AND v.serie = ?',
             (usuario_id, serie)).fetchone()

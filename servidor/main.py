@@ -174,7 +174,12 @@ def listar_dispositivos(usuario=Depends(usuario_actual)):
     salida = []
     for disp in db.dispositivos_de(usuario['id']):
         info = {'serie': disp['serie'], 'apodo': disp['apodo'],
-                'drive_path': disp['drive_path'], 'estado': None}
+                'drive_path': disp['drive_path'], 'estado': None,
+                # Un Tector con software 1.1 no se registra solo ni publica
+                # estado.json: lo cargo alguien a mano. La app lo muestra
+                # distinto en vez de reportarlo como equipo mudo.
+                'heredado': str(disp.get('id_hardware') or '')
+                            .startswith('heredado:')}
         if disp['drive_path']:
             try:
                 info['estado'] = drive.estado(disp['drive_path'])
