@@ -54,6 +54,35 @@ CREATE TABLE IF NOT EXISTS vinculos (
 );
 
 CREATE INDEX IF NOT EXISTS idx_vinculos_usuario ON vinculos(usuario_id);
+
+-- Reportes de deteccion equivocada, cargados desde la app.
+--
+-- Solo se reportan ERRORES: no hay opcion de confirmar que la especie estaba
+-- bien. Es a proposito -- si se pudiera confirmar, lo que llegaria seria una
+-- mezcla de "revise y estaba bien" con "no revise nada", y no habria forma
+-- de distinguirlas. Un reporte aca significa siempre lo mismo: alguien
+-- escucho ese audio y dice que el motor se equivoco.
+--
+-- La ruta del audio se guarda tal cual: es lo unico que permite volver a
+-- escuchar el archivo que motivo el reporte. El nombre del archivo ya trae
+-- especie, confianza, fecha y hora, pero se guardan aparte igual, porque los
+-- archivos viejos se borran por retencion y el reporte tiene que seguir
+-- siendo legible despues.
+CREATE TABLE IF NOT EXISTS reportes (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    serie              TEXT NOT NULL,
+    usuario_id         INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    ruta               TEXT NOT NULL,
+    especie_detectada  TEXT,
+    confianza          INTEGER,
+    fecha_deteccion    TEXT,
+    tipo               TEXT NOT NULL,
+    especie_sugerida   TEXT,
+    comentario         TEXT,
+    creado             TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_reportes_serie ON reportes(serie);
 """
 
 
@@ -221,6 +250,38 @@ def fijar_drive_path(serie, drive_path):
     with sesion() as con:
         con.execute('UPDATE dispositivos SET drive_path = ? WHERE serie = ?',
                     (drive_path, serie))
+
+
+# ---------- reportes ----------
+
+def guardar_reporte(usuario_id, serie, datos):
+    with sesion() as con:
+        cur = con.execute(
+            'INSERT INTO reportes (serie, usuario_id, ruta, especie_detectada, '
+            'confianza, fecha_deteccion, tipo, especie_sugerida, comentario, '
+            'creado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (serie, usuario_id, datos['ruta'], datos.get('especie_detectada'),
+             datos.get('confianza'), datos.get('fecha_deteccion'),
+             datos['tipo'], datos.get('especie_sugerida'),
+             datos.get('comentario'), ahora()))
+        return cur.lastrowid
+
+
+def reportes_de(usuario_id, limite=200):
+    with sesion() as con:
+        filas = con.execute(
+            'SELECT * FROM reportes WHERE usuario_id = ? '
+            'ORDER BY id DESC LIMIT ?', (usuario_id, limite)).fetchall()
+        return [dict(f) for f in filas]
+
+
+def todos_los_reportes():
+    """Para exportar. No pasa por la API: lo usa un script del laboratorio."""
+    with sesion() as con:
+        filas = con.execute(
+            'SELECT r.*, u.usuario FROM reportes r '
+            'JOIN usuarios u ON u.id = r.usuario_id ORDER BY r.id').fetchall()
+        return [dict(f) for f in filas]
 
 
 # ---------- usuarios ----------

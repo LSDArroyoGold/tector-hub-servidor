@@ -159,6 +159,56 @@ def main_pruebas():
     ck('07:30 + 3,5 h = 11:00', _sumar('07:30', 3.5) == '11:00')
     ck('23:30 + 1 h cruza medianoche = 00:30', _sumar('23:30', 1) == '00:30')
 
+    print('\n-- reportes de error --')
+    # Hace falta un dispositivo propio con drive_path para poder reportar.
+    c.post('/dispositivos/registrar',
+           json={'serie': '5555', 'id_hardware': 'hw-REP', 'drive_path': 'Tector R'})
+    c.post('/dispositivos/vincular', json={'serie': '5555'}, headers=tok)
+    ruta = ('Tector R/Detecciones/2026-09-10/Rufous_Hornero/'
+            'Rufous_Hornero-92-2026-09-10-tectornet-09:52:26.mp3')
+
+    r = c.get('/reportes/tipos', headers=tok)
+    ck('hay cuatro tipos de reporte', len(r.json()['tipos']) == 4)
+    ck('ninguno confirma que la especie estaba bien',
+       not any('bien' in t['texto'].lower() or 'correct' in t['texto'].lower()
+               for t in r.json()['tipos']))
+
+    ck('se puede reportar "no hay ave"',
+       c.post('/dispositivos/5555/reportes',
+              json={'ruta': ruta, 'tipo': 'sin_ave'}, headers=tok
+              ).status_code == 200)
+    ck('un tipo inventado se rechaza',
+       c.post('/dispositivos/5555/reportes',
+              json={'ruta': ruta, 'tipo': 'la_pegaste'}, headers=tok
+              ).status_code == 400)
+    ck('"se cual es" sin especie se rechaza',
+       c.post('/dispositivos/5555/reportes',
+              json={'ruta': ruta, 'tipo': 'otra_conocida'}, headers=tok
+              ).status_code == 400)
+    ck('con especie si se acepta',
+       c.post('/dispositivos/5555/reportes',
+              json={'ruta': ruta, 'tipo': 'otra_conocida',
+                    'especie_sugerida': 'rufhor2'}, headers=tok
+              ).status_code == 200)
+    ck('una ruta de otro dispositivo se rechaza',
+       c.post('/dispositivos/5555/reportes',
+              json={'ruta': 'Tector 9/Detecciones/x.mp3', 'tipo': 'sin_ave'},
+              headers=tok).status_code == 400)
+    ck('no se puede reportar en un Tector ajeno',
+       c.post('/dispositivos/5555/reportes',
+              json={'ruta': ruta, 'tipo': 'sin_ave'}, headers=tok2
+              ).status_code == 404)
+
+    rs = c.get('/reportes', headers=tok).json()['reportes']
+    ck('los reportes quedan guardados', len(rs) == 2)  # los rechazados no se guardan
+    uno = [x for x in rs if x['tipo'] == 'otra_conocida'][0]
+    ck('el reporte copia la especie del nombre de archivo',
+       uno['especie_detectada'] == 'Rufous Hornero')
+    ck('y la confianza', uno['confianza'] == 92)
+    ck('y la fecha y hora', uno['fecha_deteccion'] == '2026-09-10 09:52:26')
+    ck('la otra cuenta no ve estos reportes',
+       len(c.get('/reportes', headers=tok2).json()['reportes']) == 0)
+
     print('\n-- nombres de archivo de detecciones --')
     from servidor.drive import _parsear_nombre
     viejo = _parsear_nombre('Rufous_Hornero-92-2026-09-09-birdnet-09:52:26.mp3')

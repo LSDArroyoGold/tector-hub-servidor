@@ -572,6 +572,84 @@ def guardar_birdweather(datos: TokenBirdWeather,
                   'El Tector toma el cambio en su proxima ventana.'),
     }
 
+
+
+# ---------- reportes de error ----------
+
+# Los cuatro tipos que la app ofrece. Lista cerrada y validada del lado del
+# servidor: si mañana la app manda uno nuevo sin que exista aca, se rechaza en
+# vez de guardar basura que despues nadie sabe interpretar.
+#
+# NO hay un tipo "la especie estaba bien". Es deliberado: si existiera, lo que
+# llegaria seria una mezcla de "escuche y estaba bien" con "toque sin
+# escuchar", indistinguibles entre si. Asi, un reporte significa siempre lo
+# mismo.
+TIPOS_REPORTE = {
+    'sin_ave': 'No hay ningún ave en este audio',
+    'otra_desconocida': 'Hay un ave, pero no es esta especie (no sé cuál es)',
+    'otra_conocida': 'Hay un ave, pero no es esta especie (sé cuál es)',
+    'audio_cortado': 'El canto está cortado o partido en dos',
+}
+
+
+class Reporte(BaseModel):
+    ruta: str = Field(min_length=1, max_length=512)
+    tipo: str
+    # Codigo eBird de la especie que la persona dice que era. Solo tiene
+    # sentido con tipo 'otra_conocida'.
+    especie_sugerida: str | None = Field(default=None, max_length=64)
+    comentario: str | None = Field(default=None, max_length=500)
+
+
+@app.get('/reportes/tipos', tags=['reportes'])
+def tipos_de_reporte():
+    """Los tipos validos, para que la app arme el menu sin tenerlos duplicados
+    en su propio codigo."""
+    return {'tipos': [{'id': k, 'texto': v} for k, v in TIPOS_REPORTE.items()]}
+
+
+@app.post('/dispositivos/{serie}/reportes', tags=['reportes'])
+def reportar(datos: Reporte, serie: str = Path(pattern=r'^\d{4}$'),
+             usuario=Depends(usuario_actual)):
+    """Alguien escuchó una detección y dice que el motor se equivocó."""
+    disp = dispositivo_propio(serie, usuario)
+
+    if datos.tipo not in TIPOS_REPORTE:
+        raise HTTPException(400, f'Tipo de reporte desconocido: {datos.tipo}')
+    if datos.tipo == 'otra_conocida' and not datos.especie_sugerida:
+        raise HTTPException(400, 'Falta la especie: elegila de la lista.')
+
+    # Misma validacion que para servir el audio: la ruta tiene que caer dentro
+    # de la carpeta de ESTE dispositivo. Sin esto, un reporte podria dejar
+    # anotada una ruta a la carpeta de otro.
+    prefijo = f'{disp["drive_path"]}/Detecciones/'
+    if not datos.ruta.startswith(prefijo) or '..' in datos.ruta:
+        raise HTTPException(400, 'Ruta inválida.')
+
+    # El nombre del archivo ya trae especie, confianza y fecha. Se copian al
+    # reporte porque los audios viejos se borran por retencion y el reporte
+    # tiene que seguir siendo legible cuando el archivo ya no este.
+    nombre = datos.ruta.split('/')[-1]
+    m = drive.PATRON_DETECCION.match(nombre)
+
+    ident = db.guardar_reporte(usuario['id'], serie, {
+        'ruta': datos.ruta,
+        'especie_detectada': m.group('especie').replace('_', ' ') if m else None,
+        'confianza': int(m.group('confianza')) if m else None,
+        'fecha_deteccion': f'{m.group("fecha")} {m.group("hora")}' if m else None,
+        'tipo': datos.tipo,
+        'especie_sugerida': datos.especie_sugerida,
+        'comentario': (datos.comentario or '').strip() or None,
+    })
+    return {'ok': True, 'id': ident}
+
+
+@app.get('/reportes', tags=['reportes'])
+def mis_reportes(usuario=Depends(usuario_actual)):
+    """Los reportes que hizo esta cuenta. Para que se pueda ver qué se mandó,
+    no para revisarlos: eso se hace con scripts/exportar_reportes.py."""
+    return {'reportes': db.reportes_de(usuario['id'])}
+
 # ---------- vista combinada ----------
 
 @app.get('/resumen', tags=['dispositivo'])

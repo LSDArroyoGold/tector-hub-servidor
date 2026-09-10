@@ -193,6 +193,11 @@ Documentación interactiva completa en `/docs`. Lo esencial:
 | `GET` | `/dispositivos/{serie}/horarios` | Lo escrito **y** lo vigente |
 | `PUT` | `/dispositivos/{serie}/horarios` | Guarda horarios en Drive |
 | `GET` | `/resumen` | Vista combinada de todos los Tectors |
+| `GET` | `/especies/{nombre}` | Nombre científico, foto y atribución |
+| `GET` | `/reportes/tipos` | Los cuatro tipos de reporte de error |
+| `POST` | `/dispositivos/{serie}/reportes` | Reportar una detección equivocada |
+| `GET` | `/reportes` | Los reportes de esta cuenta |
+| `GET` | `/dispositivos/{serie}/descargar` | Zip de una carpeta de audios |
 
 ### Dos detalles que la app tiene que respetar
 
@@ -207,6 +212,42 @@ su `estado.json`. Mientras hay un cambio pendiente, difieren — y mostrar esa
 diferencia es más honesto que elegir una de las dos.
 
 ---
+
+## Reportes de error
+
+La app deja marcar que una detección estaba mal. **No deja confirmar que
+estaba bien**, a propósito: si se pudiera, lo que llegaría sería una mezcla de
+«escuché y estaba bien» con «toqué sin escuchar», indistinguibles entre sí. Un
+reporte significa siempre lo mismo.
+
+Cuatro tipos: no hay ningún ave, hay un ave pero no es esta (no sé cuál), hay
+un ave pero no es esta (y la elijo de un selector con las 6297 especies del
+vocabulario de BirdSet), y el canto está cortado o partido en dos —este último
+apunta directo a `SILENCIO_FIN_EVENTO_S` y `DURACION_MAXIMA_EVENTO_S`, que son
+parámetros calibrados y ajustables.
+
+Para revisarlos:
+
+```bash
+python3 -m scripts.exportar_reportes reportes.csv
+```
+
+Se guardan la especie, la confianza y la fecha además de la ruta, porque los
+audios viejos se borran por retención y el reporte tiene que seguir siendo
+legible después.
+
+## Precargar las fotos
+
+`servidor/especies.py` resuelve cualquier especie sola la primera vez que
+alguien la pide, así que **no hay lista de especies soportadas**. Lo único que
+se nota sin precarga es que la primera vez tarda un segundo o dos.
+
+```bash
+python3 -m herramientas.precalentar_fotos --limite 200
+python3 -m herramientas.precalentar_fotos            # las ~6300 del catálogo
+```
+
+Reanudable: se corta con Ctrl-C y al volver sigue donde quedó.
 
 ## Modelo de seguridad
 
