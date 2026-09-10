@@ -14,6 +14,14 @@ cualquier ave, la licencia es explicita y consultable por API, y pide
 atribucion --que este modulo trae junto con la imagen para que la app la
 pueda mostrar. Es tambien de donde saca sus imagenes BirdNET-Pi.
 
+OJO: "esta en Wikipedia" no quiere decir "es de uso libre". Casi todas las
+fotos de aves son CC BY o CC BY-SA --libres para reusar, incluso
+comercialmente, PERO con obligacion de citar al autor y la licencia-- y
+Wikipedia en ingles aloja ademas imagenes de uso legitimo ("fair use") que no
+se pueden reusar fuera de su articulo. Por eso hay lista blanca de licencias
+(ver LICENCIAS_LIBRES) y por eso la atribucion viaja con la foto en vez de
+ser opcional.
+
 COMO SE BUSCA
 -------------
 Lo unico que el sistema conoce de una deteccion es su nombre comun en ingles,
@@ -49,7 +57,7 @@ CACHE = config.RUTA_DB.parent / 'especies'
 # a resolver. Hace falta porque el cache es permanente y sobrevive a cambios
 # de codigo --sin esto, agregar un campo nuevo no se veria nunca en las
 # especies ya resueltas.
-VERSION_FICHA = 2
+VERSION_FICHA = 3
 
 
 def _pedir(parametros):
@@ -57,6 +65,35 @@ def _pedir(parametros):
     pedido = urllib.request.Request(url, headers={'User-Agent': AGENTE})
     with urllib.request.urlopen(pedido, timeout=TIMEOUT_S) as resp:
         return json.loads(resp.read().decode('utf-8'))
+
+
+# Licencias que permiten reusar la foto en la app. Se comparan contra el
+# LicenseShortName que devuelve Commons.
+#
+# Es una LISTA BLANCA, no una lista negra, y a proposito: si la licencia no
+# se reconoce --o si Commons no informa ninguna-- la foto NO se usa. Wikipedia
+# en ingles aloja tambien imagenes de uso legitimo ("fair use") que NO se
+# pueden reusar fuera de su articulo; con una lista negra, cualquier etiqueta
+# que no hubieramos previsto pasaria de largo.
+LICENCIAS_LIBRES = re.compile(
+    r'^(cc0|cc[ -]by([ -]sa)?[ -]\d|public domain|pdm|no restrictions)',
+    re.I)
+
+# Si alguna vez se quiere el criterio mas estricto posible --solo fotos sin
+# ninguna obligacion-- alcanza con dejar:
+#
+#     LICENCIAS_LIBRES = re.compile(r'^(cc0|public domain|pdm)', re.I)
+#
+# Medido el 10/9/2026 sobre las 10 especies de referencia del AMBA: ninguna
+# tiene su foto principal en CC0 ni en dominio publico. Con ese criterio la
+# app se quedaria sin ninguna foto. Por eso se aceptan tambien CC BY y
+# CC BY-SA, que permiten el uso --incluso comercial-- a cambio de citar autor
+# y licencia, cosa que la app hace debajo de cada foto y en Cuenta >
+# Créditos de las fotos.
+
+
+def _es_libre(licencia):
+    return bool(licencia and LICENCIAS_LIBRES.match(licencia.strip()))
 
 
 def _limpiar_html(texto):
@@ -96,9 +133,9 @@ def _buscar_en_wikipedia(nombre_comun):
 
 
 def _licencia(titulo_archivo):
-    """(autor, licencia, url_descripcion) del archivo en Commons."""
+    """(autor, licencia, url_descripcion, url_licencia) del archivo."""
     if not titulo_archivo:
-        return None, None, None
+        return None, None, None, None
     try:
         datos = _pedir({
             'action': 'query', 'format': 'json',
@@ -106,7 +143,7 @@ def _licencia(titulo_archivo):
             'prop': 'imageinfo', 'iiprop': 'extmetadata|url',
         })
     except Exception:
-        return None, None, None
+        return None, None, None, None
 
     paginas = (datos.get('query') or {}).get('pages') or {}
     for _, pagina in paginas.items():
@@ -116,8 +153,9 @@ def _licencia(titulo_archivo):
             _limpiar_html((meta.get('Artist') or {}).get('value')),
             _limpiar_html((meta.get('LicenseShortName') or {}).get('value')),
             info.get('descriptionurl'),
+            _limpiar_html((meta.get('LicenseUrl') or {}).get('value')),
         )
-    return None, None, None
+    return None, None, None, None
 
 
 def resolver(nombre_comun):
@@ -150,7 +188,16 @@ def resolver(nombre_comun):
         ficha.write_text(json.dumps(datos, ensure_ascii=False), encoding='utf-8')
         return datos
 
-    autor, licencia, descripcion = _licencia(archivo)
+    autor, licencia, descripcion, url_licencia = _licencia(archivo)
+
+    # Sin licencia reconocida no se usa la foto. Mejor una ficha sin imagen
+    # que publicar algo que no se puede reusar.
+    if not _es_libre(licencia):
+        datos = {'v': VERSION_FICHA,
+                 'nombre_comun': nombre_comun.replace('_', ' '), 'imagen': None,
+                 'motivo_sin_foto': f'licencia no reutilizable: {licencia or "sin datos"}'}
+        ficha.write_text(json.dumps(datos, ensure_ascii=False), encoding='utf-8')
+        return datos
 
     # Wikipedia en castellano titula a casi todas estas aves por su nombre
     # cientifico ("Furnarius rufus"), no por el vulgar. Sale gratis y es
@@ -168,6 +215,9 @@ def resolver(nombre_comun):
         'origen': url,
         'autor': autor,
         'licencia': licencia,
+        'licencia_url': url_licencia,
+        # Pagina del archivo en Commons: ahi estan el autor, la licencia
+        # completa y el original. Es a donde apunta el credito en la app.
         'descripcion_url': descripcion,
     }
     ficha.write_text(json.dumps(datos, ensure_ascii=False), encoding='utf-8')
