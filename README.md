@@ -106,6 +106,53 @@ sudo nano /etc/tector-hub/entorno   # pegar la clave en TECTOR_CLAVE_JWT
 Sin `TECTOR_CLAVE_JWT`, el servidor arranca igual pero genera una clave al
 azar en cada reinicio, y todas las sesiones de la app se cortan cada vez.
 
+### 3b. Autorizar la cuenta de respaldo
+
+La base tiene las cuentas, qué Tector es de quién y todos los reportes. Nada
+de eso está en otro lado: las detecciones y los logs viven en Drive y se
+pueden volver a leer, pero esto no. Y el «servidor» es un teléfono con una
+microSD.
+
+El respaldo va a la cuenta institucional del proyecto,
+**lsdarroyogold@gmail.com**, como un segundo remoto de rclone —a propósito
+distinto del de los datos: un respaldo guardado en la misma cuenta se pierde
+junto con la cuenta.
+
+```bash
+rclone config
+```
+
+Remoto nuevo de tipo `drive`, nombre **`gdrive-lsd`**, autorizado con
+lsdarroyogold@gmail.com y scope `drive.file`. Después, en
+`/etc/tector-hub/entorno`:
+
+```
+TECTOR_RESPALDO_REMOTE=gdrive-lsd
+```
+
+Y una línea de cron en la Debian del teléfono:
+
+```
+17 3 * * *  cd /opt/tector-hub-servidor && .venv/bin/python -m scripts.respaldar
+```
+
+Probalo a mano una vez antes de confiar en el cron:
+
+```bash
+.venv/bin/python -m scripts.respaldar
+```
+
+> No es un `cp` del archivo. SQLite corre en modo WAL: las escrituras
+> recientes están en un archivo aparte, y copiar el `.db` mientras el
+> servidor atiende un pedido da algo incompleto o corrupto —y el error no
+> aparece hasta el día que hace falta restaurarlo. Se usa la API de respaldo
+> en caliente de SQLite, y cada copia se verifica con `PRAGMA
+> integrity_check` **antes** de subirla: un respaldo corrupto que se sube
+> igual es peor que no tener respaldo, porque uno cree que está cubierto.
+
+Se guardan las últimas 14, con la fecha en el nombre. Rotar importa: con una
+sola copia, una corrupción silenciosa la pisa al día siguiente.
+
 ### 4. Crear la primera cuenta
 
 ```bash

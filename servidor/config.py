@@ -51,6 +51,17 @@ RCLONE_CONFIG = os.environ.get(
 RCLONE_REMOTE = os.environ.get('TECTOR_RCLONE_REMOTE', 'gdrive')
 RCLONE_TIMEOUT_S = int(os.environ.get('TECTOR_RCLONE_TIMEOUT', '60'))
 
+# --- Respaldo de la base ---
+# A que remoto de rclone van los respaldos. Por defecto el mismo que los
+# datos, pero conviene que sea OTRO: un respaldo guardado en la misma cuenta
+# que los datos se pierde con la cuenta. El del proyecto es
+# lsdarroyogold@gmail.com; ver el README para autorizarlo como un segundo
+# remoto de rclone.
+RESPALDO_REMOTE = os.environ.get('TECTOR_RESPALDO_REMOTE', '') or None
+RESPALDO_CARPETA = os.environ.get('TECTOR_RESPALDO_CARPETA',
+                                  'Tector Hub/respaldos')
+RESPALDO_COPIAS = int(os.environ.get('TECTOR_RESPALDO_COPIAS', '14'))
+
 # Cache en memoria de los listados de Drive. Sin esto, abrir el explorador de
 # la app dispara un rclone lsjson por pantalla, que tarda segundos.
 CACHE_SEGUNDOS = int(os.environ.get('TECTOR_CACHE_S', '120'))

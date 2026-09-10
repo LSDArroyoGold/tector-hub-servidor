@@ -18,3 +18,12 @@ TECTOR_RCLONE_REMOTE=gdrive
 # Origenes permitidos para la app. Con app nativa alcanza con *; si en algun
 # momento hay cliente web, poner el dominio exacto.
 TECTOR_CORS=*
+
+# --- Respaldo de la base ---
+# A qué remoto de rclone van los respaldos. Conviene que NO sea el mismo que
+# el de los datos: un respaldo guardado en la misma cuenta se pierde junto
+# con la cuenta. El del proyecto es lsdarroyogold@gmail.com; autorizalo como
+# un segundo remoto (ver el README) y poné su nombre acá.
+TECTOR_RESPALDO_REMOTE=gdrive-lsd
+TECTOR_RESPALDO_CARPETA=Tector Hub/respaldos
+TECTOR_RESPALDO_COPIAS=14
