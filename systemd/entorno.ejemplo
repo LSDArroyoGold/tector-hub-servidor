@@ -25,5 +25,10 @@ TECTOR_CORS=*
 # con la cuenta. El del proyecto es lsdarroyogold@gmail.com; autorizalo como
 # un segundo remoto (ver el README) y poné su nombre acá.
 TECTOR_RESPALDO_REMOTE=gdrive-lsd
-TECTOR_RESPALDO_CARPETA=Tector Hub/respaldos
+# Entre comillas por el espacio: systemd se lo banca sin ellas, pero si el
+# archivo se lee con "." de bash --que es como lo arranca el supervisor del
+# telefono, donde no hay systemd-- el espacio parte el valor y bash intenta
+# ejecutar "Hub/respaldos". Los respaldos irian a una carpeta llamada
+# "Tector" sin que nadie se entere.
+TECTOR_RESPALDO_CARPETA="Tector Hub/respaldos"
 TECTOR_RESPALDO_COPIAS=14
