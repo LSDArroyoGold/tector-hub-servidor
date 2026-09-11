@@ -259,10 +259,49 @@ Nada de esto bloquea el lanzamiento; está acá para que no se descubra solo.
 | | |
 |---|---|
 | Sin respaldo de la base | Decidido el 11/9. El diseño mandaba el respaldo a **otra** cuenta, para que no se perdiera junto con los datos; como los datos ahora también viven en lsdarroyogold, un respaldo ahí no protegería del riesgo que importa. Se prefirió no tenerlo antes que aparentar cobertura. Empieza a doler cuando haya **reportes de error**, que son audio etiquetado por una persona. Se enciende autorizando un segundo remoto y poniendo su nombre en `TECTOR_RESPALDO_REMOTE`. |
-| El `client_id` de rclone se retira en 2026 | Ver arriba. Es lo más urgente de esta tabla porque tiene fecha impuesta desde afuera y voltea también a los equipos de campo. |
+| El `client_id` de rclone se retira en 2026 **y es la causa de la lentitud** | Ver la sección de arriba. Lo más urgente de esta tabla. |
 | Sin notificaciones | Decidido lanzar así. El panel guarda las preferencias pero no hay quién las envíe. |
 | El Tector 2 no se apaga solo | Falta el circuito de corte de energía; la Pi queda encendida. Es anterior a todo esto y está documentado en `set_wake_rtc.py` y el README de la 2.1. |
 | Un Drive por usuario | Para cuando haya Tectors de terceros. Hoy todo va a la cuenta del laboratorio. |
+
+## PENDIENTE URGENTE: client_id propio de Google (necesita a Tomás)
+
+El 11/9 a la noche se confirmó midiendo que **la lentitud de la app viene de
+la cuota de Google**, no del teléfono ni del código:
+
+```
+Error 403: Quota exceeded for quota metric 'Queries' ... rateLimitExceeded
+pacer: Rate limited, increasing sleep to 1.5s ... 3s ...
+```
+
+rclone usa un `client_id` compartido entre **todos los usuarios de rclone del
+mundo**, y Google lo limita en conjunto. Cuando pega el límite, rclone espera
+y reintenta: un listado que tarda 5 s pasa a tardar 45 o 70, al azar. Los
+caches y la descarga anticipada de audio lo esconden bastante, pero la
+solución es tener cuota propia. Y ese mismo `client_id` **se retira durante
+2026**, así que hay que hacerlo igual.
+
+**Cómo, ~15 minutos** (guía oficial: https://rclone.org/drive/#making-your-own-client-id):
+
+1. https://console.cloud.google.com → crear un proyecto (nombre: `Tector Hub`).
+2. *APIs y servicios → Biblioteca* → buscar **Google Drive API** → Habilitar.
+3. *Pantalla de consentimiento OAuth* → tipo **Externo** → nombre de la app,
+   tu mail de contacto → guardar. En *Público objetivo* / *Estado de
+   publicación*: **pasar a Producción** («Publicar la app»). Es importante:
+   si queda en «Prueba», el token vence a los 7 días y la sincronización se
+   corta sola sin avisar. Va a decir que la app no está verificada: no
+   importa, es solo para ustedes.
+4. *Credenciales → Crear credenciales → ID de cliente de OAuth* → tipo
+   **App de escritorio** → copiar el **ID de cliente** y el **secreto**.
+5. Pasárselos a Claude (o a quien lo haga), que reautoriza rclone en el
+   teléfono con esas credenciales. Es el mismo baile del navegador de la
+   instalación, una vez.
+
+**Después, lo mismo en los Tectors.** Los equipos suben con el mismo
+`client_id` compartido y sufren la misma cuota (y el mismo retiro). Diego
+tiene que poner `client_id` y `client_secret` en el `rclone.conf` de cada uno
+(`/home/lsd/.config/rclone/rclone.conf`) y reautorizar. Ese archivo no se
+sincroniza por git a propósito.
 
 ## Operación diaria
 
