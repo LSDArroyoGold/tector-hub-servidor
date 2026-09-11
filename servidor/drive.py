@@ -89,12 +89,15 @@ def escribir_texto(ruta, contenido):
 def preservar(ruta_origen, nombre_destino):
     """Copia un audio a la carpeta de reportados del proyecto.
 
-    POR QUE: el audio de una deteccion vive en el Drive del equipo y tiene
-    fecha de vencimiento (RETENCION_DIAS). Un audio que alguien se tomo el
-    trabajo de reportar es justamente el que NO se puede perder: es material
-    para reentrenar, con su etiqueta puesta por una persona. Asi que se copia
-    apenas se reporta, a la cuenta del proyecto, y deja de depender de la
-    retencion del equipo.
+    POR QUE: el audio de una deteccion vive en el Drive del equipo, y ese
+    Drive se limpia --hoy a mano, borrando carpetas viejas; el borrado
+    automatico esta apagado desde el 11/9/2026 pero puede volver--. Un audio
+    que alguien se tomo el trabajo de reportar es justamente el que NO se
+    puede perder: es material para reentrenar, con su etiqueta puesta por una
+    persona. Asi que se copia apenas se reporta, a la cuenta del proyecto, y
+    deja de depender de lo que pase con la carpeta del equipo. Contra el
+    borrado a mano importa mas todavia: nadie que este limpiando espacio se
+    va a acordar de que en ese dia habia un reporte.
 
     Va al remoto de respaldo si hay uno configurado --el mismo criterio que
     scripts/respaldar.py: lo valioso no se guarda en la misma cuenta que lo

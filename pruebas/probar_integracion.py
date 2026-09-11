@@ -107,6 +107,39 @@ def pedir(url, token=None, metodo='GET', cuerpo=None, crudo=False):
         return e.code, None
 
 
+def ruta_ascii(ruta):
+    """Devuelve una ruta escribible en un .bat: ASCII sí o sí.
+
+    Si ya es ASCII se devuelve igual. Si no, se le pide a Windows el nombre
+    corto 8.3, que por definición no tiene acentos. Si el volumen tiene los
+    nombres cortos desactivados --se puede, por disco-- no queda nada que
+    hacer, y conviene decirlo acá y no fallar después con un error que no se
+    entiende.
+    """
+    try:
+        ruta.encode('ascii')
+        return ruta
+    except UnicodeEncodeError:
+        pass
+    if os.name != 'nt':
+        return ruta
+    import ctypes
+    buf = ctypes.create_unicode_buffer(1024)
+    corta = ''
+    if ctypes.windll.kernel32.GetShortPathNameW(ruta, buf, 1024):
+        corta = buf.value
+        try:
+            corta.encode('ascii')
+        except UnicodeEncodeError:
+            corta = ''
+    if not corta:
+        raise SystemExit(
+            'No hay ruta ASCII para ' + ruta + ': el disco tiene los nombres '
+            'cortos 8.3 desactivados y la ruta tiene acentos. Mover el repo o '
+            'el venv a una ruta sin acentos.')
+    return corta
+
+
 def main():
     for f in (sys.stdout, sys.stderr):
         try:
@@ -122,16 +155,22 @@ def main():
 
     # rclone.bat: subprocess en Windows no ejecuta un .py directo.
     #
-    # El script se copia antes a la carpeta temporal, que tiene ruta ASCII.
-    # Los .bat los interpreta Windows con la codepage OEM, no UTF-8, y la
-    # ruta del repo tiene un acento ("Física"): escrita en el .bat, el
-    # intérprete la leía mal y apuntaba a un archivo inexistente. El error
-    # aparecía como "no se pudo leer estado.json", que no ayuda en nada.
+    # TODO lo que entra al .bat tiene que ser ASCII. Los .bat los
+    # interpreta Windows con la codepage OEM, no UTF-8, y la ruta del repo
+    # tiene un acento ("Física"): escrita tal cual, el intérprete la lee
+    # mal y apunta a un archivo inexistente. El error aparecía como "no se
+    # pudo leer estado.json", que no ayuda en nada.
+    #
+    # Son dos rutas y cada una se arregla distinto:
+    #   - la del script, copiándolo a la carpeta temporal, que es ASCII;
+    #   - la del intérprete, que desde que hay un .venv adentro del repo
+    #     también arrastra el acento, pidiendo el nombre corto 8.3.
     falso = tmp / 'rclone_falso.py'
     shutil.copy2(RAIZ / 'pruebas' / 'rclone_falso.py', falso)
     bat = tmp / 'rclone.bat'
-    bat.write_text(f'@echo off\n"{sys.executable}" "{falso}" %*\n',
-                   encoding='ascii')
+    bat.write_text('@echo off' + chr(10) +
+                   '"' + ruta_ascii(sys.executable) + '" "' +
+                   str(falso) + '" %*' + chr(10), encoding='ascii')
 
     entorno = {
         **os.environ,

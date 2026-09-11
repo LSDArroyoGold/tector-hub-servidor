@@ -1,0 +1,10 @@
+# Dependencias que SOLO hacen falta para correr pruebas/. Aparte de
+# requirements.txt a proposito: en el S10e no hay que instalarlas.
+#
+#     python -m venv .venv
+#     .venv/bin/pip install -r requirements.txt -r requirements-pruebas.txt
+#     .venv/bin/python -m pruebas.probar_api
+#     .venv/bin/python -m pruebas.probar_integracion
+
+# Lo pide starlette.testclient (que usa probar_api.py). No viene con FastAPI.
+httpx==0.28.1
