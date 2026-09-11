@@ -189,6 +189,13 @@ def main():
     #     también arrastra el acento, pidiendo el nombre corto 8.3.
     falso = tmp / 'rclone_falso.py'
     shutil.copy2(RAIZ / 'pruebas' / 'rclone_falso.py', falso)
+    # En Linux el servidor ejecuta este .py DIRECTAMENTE, por su shebang, sin
+    # el .bat que hace de intermediario en Windows. Tiene que tener permiso de
+    # ejecucion, y git no lo trae. Sin esto el arranque falla con un 500 al
+    # primer pedido que toque Drive, y el sintoma --"'NoneType' object is not
+    # subscriptable" tres pruebas mas abajo-- no dice nada del permiso.
+    if os.name != 'nt':
+        falso.chmod(0o755)
     bat = tmp / 'rclone.bat'
     bat.write_text('@echo off' + chr(10) +
                    '"' + ruta_ascii(sys.executable) + '" "' +
