@@ -632,6 +632,15 @@ def reportar(datos: Reporte, serie: str = Path(pattern=r'^\d{4}$'),
     nombre = datos.ruta.split('/')[-1]
     m = drive.PATRON_DETECCION.match(nombre)
 
+    # El audio se preserva ANTES de guardar el reporte. Si se hiciera al
+    # reves y la copia fallara, quedaria un reporte apuntando a un audio que
+    # se va a borrar solo, y nadie se enteraria hasta querer reentrenar.
+    #
+    # El nombre del destino lleva el tipo de reporte adelante: la carpeta se
+    # vuelve navegable por categoria de error sin abrir la base.
+    conservado = drive.preservar(
+        datos.ruta, f'{datos.tipo}/{serie}_{nombre}')
+
     ident = db.guardar_reporte(usuario['id'], serie, {
         'ruta': datos.ruta,
         'especie_detectada': m.group('especie').replace('_', ' ') if m else None,
@@ -641,7 +650,7 @@ def reportar(datos: Reporte, serie: str = Path(pattern=r'^\d{4}$'),
         'especie_sugerida': datos.especie_sugerida,
         'comentario': (datos.comentario or '').strip() or None,
     })
-    return {'ok': True, 'id': ident}
+    return {'ok': True, 'id': ident, 'audio_conservado': conservado}
 
 
 @app.get('/reportes', tags=['reportes'])

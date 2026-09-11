@@ -272,6 +272,18 @@ def main():
         cod, r = pedir(base + '/reportes', tk)
         ck('el reporte guarda la especie del archivo',
            r['reportes'][0]['especie_detectada'] == det['especie'])
+        cod, r = pedir(base + '/dispositivos/4417/reportes', tk, 'POST',
+                       {'ruta': det['ruta'], 'tipo': 'otra_conocida',
+                        'especie_sugerida': 'rufhor2'})
+        ck('el audio reportado se preserva', cod == 200 and r.get('audio_conservado'))
+        guardados = list((drive / 'Tector Hub' / 'reportados').rglob('*.mp3')) \
+            if (drive / 'Tector Hub' / 'reportados').exists() else []
+        ck('la copia quedo en la carpeta del proyecto', len(guardados) >= 1,
+           str(len(guardados)))
+        ck('ordenada por tipo de error',
+           any('otra_conocida' in str(g.parent) for g in guardados))
+        ck('y sobrevive si el equipo borra el original',
+           guardados and guardados[0].read_bytes().startswith(b'ID3'))
 
         print('\n-- respaldo de la base --')
         rr = subprocess.run([sys.executable, '-m', 'scripts.respaldar'],

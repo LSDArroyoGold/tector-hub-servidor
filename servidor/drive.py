@@ -86,6 +86,35 @@ def escribir_texto(ruta, contenido):
     invalidar(ruta)
 
 
+def preservar(ruta_origen, nombre_destino):
+    """Copia un audio a la carpeta de reportados del proyecto.
+
+    POR QUE: el audio de una deteccion vive en el Drive del equipo y tiene
+    fecha de vencimiento (RETENCION_DIAS). Un audio que alguien se tomo el
+    trabajo de reportar es justamente el que NO se puede perder: es material
+    para reentrenar, con su etiqueta puesta por una persona. Asi que se copia
+    apenas se reporta, a la cuenta del proyecto, y deja de depender de la
+    retencion del equipo.
+
+    Va al remoto de respaldo si hay uno configurado --el mismo criterio que
+    scripts/respaldar.py: lo valioso no se guarda en la misma cuenta que lo
+    reemplazable.
+
+    Devuelve True si quedo copiado. No lanza: que falle la copia no puede
+    tumbar el reporte, pero se avisa fuerte porque es justo lo que se queria
+    conservar.
+    """
+    remoto = config.RESPALDO_REMOTE or config.RCLONE_REMOTE
+    destino = f'{remoto}:{config.CARPETA_REPORTADOS}/{nombre_destino}'
+    try:
+        _correr(['copyto', _remoto(ruta_origen), destino])
+        return True
+    except ErrorDrive as e:
+        print(f'[drive] NO se pudo preservar el audio reportado '
+              f'{ruta_origen}: {e}', file=sys.stderr)
+        return False
+
+
 def listar(ruta, recursivo=False, solo_directorios=False, usar_cache=True):
     """lsjson de una carpeta. Devuelve [] si la carpeta no existe todavia --
     es el caso normal de un Tector que aun no subio nada, no un error."""

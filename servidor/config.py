@@ -62,6 +62,12 @@ RESPALDO_CARPETA = os.environ.get('TECTOR_RESPALDO_CARPETA',
                                   'Tector Hub/respaldos')
 RESPALDO_COPIAS = int(os.environ.get('TECTOR_RESPALDO_COPIAS', '14'))
 
+# Donde se guardan los audios que alguien reporto como mal etiquetados. Van
+# al mismo remoto que los respaldos: son el material de reentrenamiento y no
+# pueden depender de la retencion del equipo que los grabo.
+CARPETA_REPORTADOS = os.environ.get('TECTOR_CARPETA_REPORTADOS',
+                                    'Tector Hub/reportados')
+
 # Cache en memoria de los listados de Drive. Sin esto, abrir el explorador de
 # la app dispara un rclone lsjson por pantalla, que tarda segundos.
 CACHE_SEGUNDOS = int(os.environ.get('TECTOR_CACHE_S', '120'))
