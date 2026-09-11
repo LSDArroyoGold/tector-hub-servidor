@@ -183,6 +183,11 @@ def listar_dispositivos(usuario=Depends(usuario_actual)):
         if disp['drive_path']:
             try:
                 info['estado'] = drive.estado(disp['drive_path'])
+                # Un 1.1 nunca va a tener estado.json. En vez de mostrarlo
+                # como equipo mudo, se reconstruye lo que se pueda del log,
+                # que ese si lo sube en cada ventana.
+                if info['estado'] is None and info['heredado']:
+                    info['estado'] = drive.estado_heredado(disp['drive_path'])
             except drive.ErrorDrive:
                 info['estado'] = None
         salida.append(info)
@@ -225,6 +230,8 @@ def estado_dispositivo(serie: str = Path(pattern=r'^\d{4}$'),
                        usuario=Depends(usuario_actual)):
     disp = dispositivo_propio(serie, usuario)
     estado = drive.estado(disp['drive_path'])
+    if estado is None:
+        estado = drive.estado_heredado(disp['drive_path'])
     if estado is None:
         raise HTTPException(
             503, 'Este Tector todavia no publico su estado. Si viene de la '

@@ -184,6 +184,106 @@ def estado(drive_path):
         return None
 
 
+# El log de la 1.1 tiene una linea por evento de ventana, y ahi adentro esta
+# casi todo lo que la app necesita mostrar. Las tres formas posibles:
+#
+#   [2026-09-11 07:16] INICIO ventana amanecer | Bateria: 87% | Fin esperado: 10:16
+#   [2026-09-11 10:17] FIN ventana amanecer | Bateria: 81% | Detecciones subidas: 34 | Proxima ventana: 18:42
+#   [2026-09-11 10:17] FIN ventana amanecer | SIN CONEXION, ... | Bateria: 81% | Detecciones: 34 | Proxima ventana: 18:42
+#
+# Los acentos van como los escribe el equipo; el patron los contempla.
+_LOG_SELLO = re.compile(r'^\[(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})\]')
+_LOG_EVENTO = re.compile(r'\] (INICIO|FIN) ventana (\w+)')
+_LOG_BATERIA = re.compile(r'Bater[ií]a: (\d+)%')
+_LOG_DETECCIONES = re.compile(r'Detecciones(?: subidas)?: (\d+)')
+_LOG_PROXIMA = re.compile(r'Pr[oó]xima ventana: (\d{2}:\d{2})')
+_LOG_FIN_ESPERADO = re.compile(r'Fin esperado: (\d{2}:\d{2})')
+
+
+def estado_heredado(drive_path):
+    """Estado de un Tector 1.1, reconstruido a partir de su log.
+
+    POR QUE: esa version no escribe estado.json --no existe en su codigo-- y
+    no se le puede pedir sin actualizar el equipo, que esta en el campo. Pero
+    si sube su log a Drive al abrir y al cerrar cada ventana, y ahi esta la
+    bateria, la ventana en curso y la hora de la proxima. Con eso alcanza
+    para que la app muestre algo real en vez de "sin reporte de estado".
+
+    Se resuelve del lado del servidor A PROPOSITO: cualquier alternativa
+    --portar generar_estado.py a la 1.1-- significa tocar los scripts de un
+    equipo instalado, y esto no lo justifica.
+
+    Lo que devuelve NO es un estado.json: le faltan los horarios vigentes, el
+    voltaje, la version de software y el umbral de bateria, porque el log no
+    los tiene. Lleva 'fuente': 'log' para que quede claro rio abajo que es
+    una reconstruccion y no lo que dijo el equipo de si mismo.
+
+    Devuelve None si no hay log o no se pudo leer: es lo mismo que hacia
+    antes, asi que la app degrada como ya sabe.
+    """
+    crudo = ''
+    for nombre in ('log_sistema.txt', 'log_reciente.txt'):
+        try:
+            crudo = leer_texto(f'{drive_path}/{nombre}')
+            break
+        except ErrorDrive:
+            continue
+    if not crudo.strip():
+        return None
+
+    ultimo = None
+    for linea in crudo.splitlines():
+        sello = _LOG_SELLO.match(linea)
+        evento = _LOG_EVENTO.search(linea)
+        if sello and evento:
+            ultimo = (sello.group(1), sello.group(2), evento.group(1),
+                      evento.group(2), linea)
+    if ultimo is None:
+        return None
+
+    fecha, hora, tipo, ventana, linea = ultimo
+    generado = f'{fecha}T{hora}:00'
+
+    def num(patron):
+        m = patron.search(linea)
+        return int(m.group(1)) if m else None
+
+    def texto(patron):
+        m = patron.search(linea)
+        return m.group(1) if m else None
+
+    grabando = tipo == 'INICIO'
+
+    # Una ventana abierta que quedo abierta de ayer o antes no es "grabando":
+    # es un equipo que no volvio a escribir. Pasa si se quedo sin bateria o
+    # sin red en medio de la ventana. Decir "grabando" ahi seria mentir, que
+    # es peor que no saber.
+    from datetime import date, timedelta
+    vencido = grabando and fecha < (date.today() - timedelta(days=1)).isoformat()
+    if vencido:
+        grabando = False
+
+    bateria = num(_LOG_BATERIA)
+    return {
+        'version_formato': 1,
+        'fuente': 'log',
+        'generado': generado,
+        'estado': 'desconocido' if vencido else (
+            'grabando' if grabando else 'en_espera'),
+        'ventana_activa': ventana if grabando else None,
+        'proxima_ventana': {
+            'cual': None,
+            'hora': texto(_LOG_FIN_ESPERADO if grabando else _LOG_PROXIMA),
+        },
+        # La 1.1 lee el porcentaje de la PiJuice; la 2.1 mide volts y mA con
+        # el INA219. Son magnitudes distintas y por eso va en otra clave, no
+        # en una 'voltaje_v' que estaria inventada.
+        'bateria': {'porcentaje': bateria} if bateria is not None else None,
+        'detecciones_ultima_ventana': num(_LOG_DETECCIONES),
+        'sin_conexion': 'CONEXI' in linea.upper() and 'SIN' in linea.upper(),
+    }
+
+
 def log_reciente(drive_path):
     for nombre in ('log_reciente.txt', 'log_sistema.txt'):
         try:

@@ -221,6 +221,71 @@ def main_pruebas():
     ck('un nombre que no sigue el patron se descarta',
        _parsear_nombre('cualquier_cosa.mp3') is None)
 
+    print('\n-- estado reconstruido del log (Tector 1.1) --')
+    from servidor import drive as _d
+
+    LOG = (
+        '[2026-09-09 07:14] INICIO ventana amanecer | Bater\u00eda: 91% | Fin esperado: 10:14\n'
+        '[2026-09-09 10:16] FIN ventana amanecer | Bater\u00eda: 88% | Detecciones subidas: 34 | Pr\u00f3xima ventana: 18:42\n'
+        '[2026-09-09 18:42] INICIO ventana atardecer | Bater\u00eda: 86% | Fin esperado: 21:42\n'
+        '[2026-09-09 21:44] FIN ventana atardecer | Bater\u00eda: 79% | Detecciones subidas: 12 | Pr\u00f3xima ventana: 07:15\n'
+    )
+
+    def con_log(texto):
+        original = _d.leer_texto
+        _d.leer_texto = lambda ruta: texto
+        try:
+            return _d.estado_heredado('Tector 1')
+        finally:
+            _d.leer_texto = original
+
+    e = con_log(LOG)
+    ck('reconstruye un estado', e is not None)
+    ck('la ultima linea manda: ventana cerrada -> en espera',
+       e['estado'] == 'en_espera')
+    ck('no reporta ventana activa', e['ventana_activa'] is None)
+    ck('saca la hora de la proxima ventana',
+       e['proxima_ventana']['hora'] == '07:15')
+    ck('saca la bateria en porcentaje', e['bateria'] == {'porcentaje': 79})
+    ck('saca las detecciones de la ultima ventana',
+       e['detecciones_ultima_ventana'] == 12)
+    ck('el sello es el de la ultima linea', e['generado'] == '2026-09-09T21:44:00')
+    ck('se marca como reconstruido, no como reporte del equipo',
+       e['fuente'] == 'log')
+    ck('no inventa un voltaje que la 1.1 no mide',
+       'voltaje_v' not in (e['bateria'] or {}))
+
+    from datetime import date, timedelta
+    hoy = date.today().isoformat()
+    abierta = LOG + f'[{hoy} 07:15] INICIO ventana amanecer | Bater\u00eda: 77% | Fin esperado: 10:15\n'
+    e2 = con_log(abierta)
+    ck('una ventana abierta hoy si es "grabando"', e2['estado'] == 'grabando')
+    ck('y dice cual', e2['ventana_activa'] == 'amanecer')
+    ck('con la hora de fin, no la de la proxima',
+       e2['proxima_ventana']['hora'] == '10:15')
+
+    viejo = (LOG.replace('2026-09-09', '2020-01-01')
+             + '[2020-01-02 07:15] INICIO ventana amanecer | Bater\u00eda: 9% | Fin esperado: 10:15\n')
+    e3 = con_log(viejo)
+    ck('una ventana que quedo abierta hace anios no dice "grabando"',
+       e3['estado'] == 'desconocido')
+    ck('y tampoco dice que hay una ventana activa', e3['ventana_activa'] is None)
+
+    sin_red = ('[2026-09-09 10:16] FIN ventana amanecer | SIN CONEXI\u00d3N, '
+               'archivos se subir\u00e1n en la pr\u00f3xima ventana | Bater\u00eda: 88% | '
+               'Detecciones: 34 | Pr\u00f3xima ventana: 18:42\n')
+    e4 = con_log(sin_red)
+    ck('la variante sin conexion tambien se parsea',
+       e4['detecciones_ultima_ventana'] == 34)
+    ck('y queda marcada', e4['sin_conexion'] is True)
+
+    ck('un log vacio no rompe: devuelve None', con_log('') is None)
+    ck('un log sin lineas de ventana devuelve None',
+       con_log('[2026-09-09 03:17] Software actualizado (abc123)\n') is None)
+    ck('una linea de retencion sola tampoco confunde',
+       con_log('[2026-09-09 10:20] RETENCION: borrado audio local de 2026-01-01\n')
+       is None)
+
     print()
     if fallos:
         print(f'{len(fallos)} prueba(s) fallaron:')
