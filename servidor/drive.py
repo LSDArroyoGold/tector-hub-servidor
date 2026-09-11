@@ -130,6 +130,74 @@ def _leer_cache(clave):
     return None
 
 
+def _con_cache(clave, usar_cache, traer):
+    """Cachea el resultado de `traer`, y deja que lo traiga UN SOLO hilo.
+
+    Si dos hilos piden lo mismo, el segundo espera el resultado del primero
+    en vez de lanzar su propio rclone.
+
+    No es una optimizacion de manual: en el telefono se midio que un lsjson
+    recursivo de una carpeta de fecha tarda ~5,6 s solo, pero pasaba de los
+    60 s de timeout cuando el hilo que calienta el cache y el pedido de la
+    app hacian LA MISMA llamada al mismo tiempo. Dos rclone peleandose la red
+    de un telefono tardan mucho mas que el doble. El sintoma era un "Drive no
+    respondio a tiempo" intermitente, de esos que no se reproducen cuando uno
+    los va a buscar.
+
+    La clave lleva la ruta en la posicion 0 para que invalidar(prefijo) barra
+    tanto listados como textos de esa ruta.
+    """
+    if not usar_cache:
+        return traer()
+
+    guardado = _leer_cache(clave)
+    if guardado is not None:
+        return guardado
+
+    with _cache_lock:
+        evento = _en_curso.get(clave)
+        primero = evento is None
+        if primero:
+            evento = Event()
+            _en_curso[clave] = evento
+
+    if not primero:
+        # El +30 es para no quedarse colgado si el otro hilo muere sin avisar:
+        # se espera un poco mas que su propio timeout y se sigue.
+        evento.wait(timeout=config.RCLONE_TIMEOUT_S + 30)
+        guardado = _leer_cache(clave)
+        if guardado is not None:
+            return guardado
+        # El otro fallo o vencio. Se intenta solo, que es mejor que nada.
+        return traer()
+
+    try:
+        valor = traer()
+    finally:
+        with _cache_lock:
+            ev = _en_curso.pop(clave, None)
+        if ev:
+            ev.set()
+
+    with _cache_lock:
+        _cache[clave] = (time.time(), valor)
+    return valor
+
+
+def leer_texto_cacheado(ruta):
+    """leer_texto() con cache, para lo que la app pide en cada pantalla.
+
+    estado.json, el log y config_horarios.txt se leen en casi todos los
+    pedidos, y cada lectura es un viaje de red entero. Sin esto, /dispositivos
+    --la PRIMERA pantalla de la app-- tardaba casi un minuto en el telefono,
+    porque hace dos lecturas seguidas.
+
+    Comparte cache con los listados, asi que escribir_texto() -> invalidar()
+    tambien lo limpia y la app no queda viendo un valor viejo.
+    """
+    return _con_cache((ruta, 'texto', False), True, lambda: leer_texto(ruta))
+
+
 def listar(ruta, recursivo=False, solo_directorios=False, usar_cache=True):
     """lsjson de una carpeta. Devuelve [] si la carpeta no existe todavia --
     es el caso normal de un Tector que aun no subio nada, no un error.
@@ -146,42 +214,12 @@ def listar(ruta, recursivo=False, solo_directorios=False, usar_cache=True):
     "Drive no respondio a tiempo" intermitente, de esos que no se reproducen
     cuando uno los va a buscar.
     """
-    clave = (ruta, recursivo, solo_directorios)
-    if usar_cache:
-        guardado = _leer_cache(clave)
-        if guardado is not None:
-            return guardado
-
-        # Si ya hay alguien trayendo esto, esperarlo.
-        with _cache_lock:
-            evento = _en_curso.get(clave)
-            primero = evento is None
-            if primero:
-                evento = Event()
-                _en_curso[clave] = evento
-        if not primero:
-            # El +30 es para no quedarse colgado si el otro hilo muere sin
-            # avisar: se espera un poco mas que su propio timeout y se sigue.
-            evento.wait(timeout=config.RCLONE_TIMEOUT_S + 30)
-            guardado = _leer_cache(clave)
-            if guardado is not None:
-                return guardado
-            # El otro fallo o vencio. Se sigue de largo y se intenta solo,
-            # que es mejor que devolver vacio.
-    else:
-        primero = False
-
-    try:
-        return _listar_real(clave, ruta, recursivo, solo_directorios)
-    finally:
-        if primero:
-            with _cache_lock:
-                evento = _en_curso.pop(clave, None)
-            if evento:
-                evento.set()
+    return _con_cache(
+        (ruta, recursivo, solo_directorios), usar_cache,
+        lambda: _listar_real(ruta, recursivo, solo_directorios))
 
 
-def _listar_real(clave, ruta, recursivo, solo_directorios):
+def _listar_real(ruta, recursivo, solo_directorios):
     argumentos = ['lsjson', _remoto(ruta)]
     if recursivo:
         argumentos.append('--recursive')
@@ -198,8 +236,6 @@ def _listar_real(clave, ruta, recursivo, solo_directorios):
     except ValueError:
         datos = []
 
-    with _cache_lock:
-        _cache[clave] = (time.time(), datos)
     return datos
 
 
@@ -226,7 +262,7 @@ def estado(drive_path):
     motivo se escribe al log del servicio, que es donde uno lo va a buscar.
     """
     try:
-        return json.loads(leer_texto(f'{drive_path}/estado.json'))
+        return json.loads(leer_texto_cacheado(f'{drive_path}/estado.json'))
     except ErrorDrive as e:
         if 'not found' not in str(e).lower():
             print(f'[drive] no se pudo leer {drive_path}/estado.json: {e}',
@@ -278,7 +314,7 @@ def estado_heredado(drive_path):
     crudo = ''
     for nombre in ('log_sistema.txt', 'log_reciente.txt'):
         try:
-            crudo = leer_texto(f'{drive_path}/{nombre}')
+            crudo = leer_texto_cacheado(f'{drive_path}/{nombre}')
             break
         except ErrorDrive:
             continue
@@ -341,7 +377,7 @@ def estado_heredado(drive_path):
 def log_reciente(drive_path):
     for nombre in ('log_reciente.txt', 'log_sistema.txt'):
         try:
-            return leer_texto(f'{drive_path}/{nombre}')
+            return leer_texto_cacheado(f'{drive_path}/{nombre}')
         except ErrorDrive:
             continue
     return ''
@@ -353,7 +389,7 @@ def horarios(drive_path):
     baja recien al abrir o cerrar su proxima ventana. Para lo que realmente
     esta vigente en el equipo, mirar estado.json."""
     try:
-        crudo = leer_texto(f'{drive_path}/config_horarios.txt')
+        crudo = leer_texto_cacheado(f'{drive_path}/config_horarios.txt')
     except ErrorDrive:
         return {}
     datos = {}
@@ -544,7 +580,7 @@ def detecciones_de_resumen(drive_path, fechas):
             salida.extend(_cache_resumen[clave])
             continue
         try:
-            texto = leer_texto(f'{drive_path}/Resumenes/{fecha}.csv')
+            texto = leer_texto_cacheado(f'{drive_path}/Resumenes/{fecha}.csv')
         except ErrorDrive:
             continue
         filas = _parsear_resumen(texto, fecha)

@@ -55,9 +55,17 @@ def _calentar_una_vez():
         ruta = disp.get('drive_path')
         if not ruta:
             continue
+        desde = disp.get('fecha_desde')
         try:
-            drive.fechas_con_detecciones(ruta, desde=disp.get('fecha_desde'))
-            drive.detecciones(ruta, limite=2000, desde=disp.get('fecha_desde'))
+            # Lo mismo que pide la app al abrirse, en el mismo orden:
+            # /dispositivos (estado), /cantos (listado) y /datos
+            # (estadisticas). Calentarlo aca es la diferencia entre que la
+            # primera pantalla tarde 48 s o menos de uno.
+            if drive.estado(ruta) is None:
+                drive.estado_heredado(ruta)
+            drive.fechas_con_detecciones(ruta, desde=desde)
+            drive.detecciones(ruta, limite=2000, desde=desde)
+            drive.detecciones_completas(ruta, limite=20000, desde=desde)
         except Exception as e:
             # Que Drive no responda no puede tumbar el hilo: se reintenta en
             # la vuelta siguiente.

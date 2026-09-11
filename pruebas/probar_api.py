@@ -315,10 +315,15 @@ def main_pruebas():
     def con_log(texto):
         original = _d.leer_texto
         _d.leer_texto = lambda ruta: texto
+        # Las lecturas de texto se cachean por ruta (ver leer_texto_cacheado):
+        # sin limpiar, la segunda llamada de esta prueba recibiria el log de
+        # la primera y las comprobaciones medirian cualquier cosa.
+        _d.invalidar('')
         try:
             return _d.estado_heredado('Tector 1')
         finally:
             _d.leer_texto = original
+            _d.invalidar('')
 
     e = con_log(LOG)
     ck('reconstruye un estado', e is not None)
