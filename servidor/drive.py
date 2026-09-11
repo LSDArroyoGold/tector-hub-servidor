@@ -325,24 +325,8 @@ def _parsear_nombre(nombre):
     }
 
 
-def detecciones(drive_path, fecha=None, especie=None, limite=200):
-    """Detecciones leidas del arbol de Drive.
-
-    No hay base de datos de detecciones en ningun lado del proyecto: el
-    nombre del archivo ES el registro (lo arma exportador.py de TectorNet).
-    Asi que esto lista Drive y parsea nombres, que es exactamente lo que ya
-    hacen los scripts del dispositivo para contar detecciones.
-
-    Estructura real: <drive_path>/Detecciones/<fecha>/<Especie>/<archivo>.mp3
-    """
-    raiz = f'{drive_path}/Detecciones'
-    if fecha and especie:
-        subruta, prof = f'{raiz}/{fecha}/{especie}', False
-    elif fecha:
-        subruta, prof = f'{raiz}/{fecha}', True
-    else:
-        subruta, prof = raiz, True
-
+def _de_ruta(subruta, prof):
+    """Detecciones parseadas de un listado de Drive."""
     salida = []
     for entrada in listar(subruta, recursivo=prof):
         if entrada.get('IsDir'):
@@ -353,15 +337,64 @@ def detecciones(drive_path, fecha=None, especie=None, limite=200):
         datos['ruta'] = f'{subruta}/{entrada["Path"]}'
         datos['bytes'] = entrada.get('Size')
         salida.append(datos)
+    return salida
 
+
+def detecciones(drive_path, fecha=None, especie=None, limite=200, desde=None,
+                todo=False):
+    """Detecciones leidas del arbol de Drive.
+
+    No hay base de datos de detecciones en ningun lado del proyecto: el
+    nombre del archivo ES el registro (lo arma exportador.py de TectorNet).
+    Asi que esto lista Drive y parsea nombres, que es exactamente lo que ya
+    hacen los scripts del dispositivo para contar detecciones.
+
+    Estructura real: <drive_path>/Detecciones/<fecha>/<Especie>/<archivo>.mp3
+
+    `desde` es el piso de fecha del dispositivo: no se mira nada anterior.
+
+    `todo` decide COMO se lista cuando no se pide una fecha puntual, y la
+    diferencia importa:
+
+    - todo=False (la vista de cantos): se recorren las carpetas de fecha de
+      la mas nueva a la mas vieja y se corta al juntar `limite`. Como el
+      resultado sale ordenado por fecha y recortado, es identico a mirar
+      todo, pero pidiendo solo lo que hace falta.
+    - todo=True (estadisticas): un unico lsjson recursivo sobre todo
+      Detecciones/. Hace falta de verdad --el calculo mira toda la historia--
+      y una llamada por fecha serian cientos de viajes de red.
+
+    Antes esto listaba SIEMPRE todo, y con varios meses de historia el
+    listado recursivo pasaba los 60 s de timeout de rclone: la vista de
+    cantos devolvia 500 mientras las estadisticas, que se cachean, a veces
+    entraban y a veces no.
+    """
+    raiz = f'{drive_path}/Detecciones'
+
+    if fecha and especie:
+        salida = _de_ruta(f'{raiz}/{fecha}/{especie}', False)
+    elif fecha:
+        salida = _de_ruta(f'{raiz}/{fecha}', True)
+    elif todo:
+        salida = _de_ruta(raiz, True)
+    else:
+        salida = []
+        for f in fechas_con_detecciones(drive_path, desde=desde):
+            salida.extend(_de_ruta(f'{raiz}/{f}', True))
+            if len(salida) >= limite:
+                break
+
+    if desde:
+        salida = [d for d in salida if d['fecha'] >= desde]
     salida.sort(key=lambda d: (d['fecha'], d['hora']), reverse=True)
     return salida[:limite]
 
 
-def fechas_con_detecciones(drive_path):
+def fechas_con_detecciones(drive_path, desde=None):
     carpetas = listar(f'{drive_path}/Detecciones', solo_directorios=True)
     fechas = [c['Name'] for c in carpetas
-              if re.fullmatch(r'\d{4}-\d{2}-\d{2}', c['Name'])]
+              if re.fullmatch(r'\d{4}-\d{2}-\d{2}', c['Name'])
+              and (not desde or c['Name'] >= desde)]
     return sorted(fechas, reverse=True)
 
 
@@ -390,7 +423,7 @@ _cache_resumen = {}
 _COLUMNAS_RESUMEN = ('fecha', 'hora', 'especie', 'confianza')
 
 
-def fechas_con_resumen(drive_path):
+def fechas_con_resumen(drive_path, desde=None):
     """Fechas que tienen CSV en Resumenes/, mas nuevas primero."""
     fechas = []
     for entrada in listar(f'{drive_path}/Resumenes'):
@@ -399,7 +432,8 @@ def fechas_con_resumen(drive_path):
         nombre = entrada.get('Name', '')
         if nombre.endswith('.csv') and re.fullmatch(r'\d{4}-\d{2}-\d{2}',
                                                    nombre[:-4]):
-            fechas.append(nombre[:-4])
+            if not desde or nombre[:-4] >= desde:
+                fechas.append(nombre[:-4])
     return sorted(fechas, reverse=True)
 
 
@@ -473,7 +507,7 @@ def detecciones_de_resumen(drive_path, fechas):
 MAX_RESUMENES = 180
 
 
-def detecciones_completas(drive_path, limite=20000):
+def detecciones_completas(drive_path, limite=20000, desde=None):
     """Todo lo que se sabe: el audio que esta, mas el que ya no esta.
 
     La regla es por dia entero, igual que la de retencion: si un dia tiene
@@ -484,11 +518,11 @@ def detecciones_completas(drive_path, limite=20000):
     Devuelve (detecciones, fechas_solo_resumen) para que quien muestre esto
     pueda decir de donde salio.
     """
-    audio = detecciones(drive_path, limite=limite)
+    audio = detecciones(drive_path, limite=limite, desde=desde, todo=True)
     con_audio = {d['fecha'] for d in audio}
 
     try:
-        faltantes = [f for f in fechas_con_resumen(drive_path)
+        faltantes = [f for f in fechas_con_resumen(drive_path, desde=desde)
                      if f not in con_audio][:MAX_RESUMENES]
     except ErrorDrive:
         return audio, []

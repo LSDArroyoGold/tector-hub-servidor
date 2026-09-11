@@ -382,6 +382,45 @@ def main():
         ck('y sobrevive si el equipo borra el original',
            guardados and guardados[0].read_bytes().startswith(b'ID3'))
 
+        print()
+        print('-- piso de fecha por dispositivo --')
+        # El caso real: un Tector con detecciones anteriores a estar bien
+        # instalado. Se dejan afuera sin borrar nada de Drive.
+        corte = (date.today() - timedelta(days=1)).isoformat()
+        subprocess.run([sys.executable, '-m', 'scripts.fecha_desde',
+                        '4417', corte],
+                       cwd=RAIZ, env=entorno, check=True,
+                       capture_output=True)
+
+        cod, fs = pedir(base + '/dispositivos/4417/fechas', tk)
+        ck('las fechas anteriores al piso desaparecen',
+           all(f >= corte for f in fs['fechas']), str(fs['fechas']))
+        ck('y las posteriores siguen', corte in fs['fechas'])
+
+        cod, ds = pedir(base + '/dispositivos/4417/detecciones', tk)
+        ck('las detecciones viejas tampoco se listan',
+           all(d['fecha'] >= corte for d in ds['detecciones']))
+
+        cod, e2 = pedir(base + '/dispositivos/4417/estadisticas', tk)
+        ck('las estadisticas cuentan solo desde el piso',
+           all(x['fecha'] >= corte for x in e2['por_fecha']),
+           str([x['fecha'] for x in e2['por_fecha']]))
+        ck('el dia que solo tenia resumen tambien queda afuera',
+           e2.get('dias_sin_audio') == [], str(e2.get('dias_sin_audio')))
+        ck('y el total baja', e2['total'] < 12, str(e2['total']))
+
+        cod, disp2 = pedir(base + '/dispositivos', tk)
+        ck('la app se entera del piso para poder decirlo',
+           disp2['dispositivos'][0].get('fecha_desde') == corte)
+
+        # Reversible: es la diferencia con borrar las carpetas a mano.
+        subprocess.run([sys.executable, '-m', 'scripts.fecha_desde',
+                        '4417', '--quitar'],
+                       cwd=RAIZ, env=entorno, check=True, capture_output=True)
+        cod, e3 = pedir(base + '/dispositivos/4417/estadisticas', tk)
+        ck('quitar el piso devuelve toda la historia', e3['total'] == 12,
+           str(e3['total']))
+
         print('\n-- respaldo de la base --')
         rr = subprocess.run([sys.executable, '-m', 'scripts.respaldar'],
                             cwd=RAIZ, env={**entorno,

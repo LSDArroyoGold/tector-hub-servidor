@@ -39,7 +39,20 @@ CREATE TABLE IF NOT EXISTS dispositivos (
     id_hardware     TEXT NOT NULL UNIQUE,
     primer_registro TEXT NOT NULL,
     ultimo_visto    TEXT NOT NULL,
-    drive_path      TEXT
+    drive_path      TEXT,
+    -- Piso de fecha: nada anterior a este dia se muestra ni se cuenta, para
+    -- ESTE equipo. No borra nada de Drive.
+    --
+    -- Existe porque un Tector puede tener detecciones que no valen: modelo a
+    -- medio instalar, microfono mal puesto, equipo en el banco de trabajo.
+    -- El caso que lo motivo: el Tector 1 quedo bien instalado el 8/9/2026 y
+    -- lo anterior no es confiable. La alternativa era borrar esas carpetas a
+    -- mano de Drive, que es irreversible y ademas se lleva el audio; asi el
+    -- dato crudo queda y solo se lo deja afuera del analisis.
+    --
+    -- Es POR DISPOSITIVO a proposito: que un equipo tenga historia dudosa no
+    -- dice nada de los demas.
+    fecha_desde     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS vinculos (
@@ -114,6 +127,14 @@ def sesion():
 def inicializar():
     with sesion() as con:
         con.executescript(ESQUEMA)
+        # Migracion de bases anteriores a fecha_desde. CREATE TABLE IF NOT
+        # EXISTS no agrega columnas a una tabla que ya existe, asi que las
+        # nuevas van aca. Barato y idempotente: se mira si esta y si no, se
+        # agrega.
+        columnas = {f['name'] for f in
+                    con.execute('PRAGMA table_info(dispositivos)').fetchall()}
+        if 'fecha_desde' not in columnas:
+            con.execute('ALTER TABLE dispositivos ADD COLUMN fecha_desde TEXT')
 
 
 # ---------- dispositivos ----------
@@ -188,7 +209,7 @@ def dispositivos_de(usuario_id):
     with sesion() as con:
         filas = con.execute(
             'SELECT d.serie, d.drive_path, d.ultimo_visto, d.primer_registro, '
-            '       d.id_hardware, v.apodo, v.vinculado '
+            '       d.id_hardware, d.fecha_desde, v.apodo, v.vinculado '
             'FROM vinculos v JOIN dispositivos d ON d.serie = v.serie '
             'WHERE v.usuario_id = ? ORDER BY v.vinculado',
             (usuario_id,)).fetchall()
@@ -203,7 +224,7 @@ def dispositivo_del_usuario(usuario_id, serie):
     """
     with sesion() as con:
         fila = con.execute(
-            'SELECT d.serie, d.drive_path, d.ultimo_visto, d.id_hardware, v.apodo '
+            'SELECT d.serie, d.drive_path, d.ultimo_visto, d.id_hardware, d.fecha_desde, v.apodo '
             'FROM vinculos v JOIN dispositivos d ON d.serie = v.serie '
             'WHERE v.usuario_id = ? AND v.serie = ?',
             (usuario_id, serie)).fetchone()
@@ -306,3 +327,12 @@ def crear_usuario(usuario, nombre, hash_clave):
             'INSERT INTO usuarios (usuario, nombre, hash_clave, creado) '
             'VALUES (?, ?, ?, ?)', (usuario, nombre, hash_clave, ahora()))
         return cur.lastrowid
+
+
+def set_fecha_desde(serie, fecha):
+    """Fija (o borra, con None) el piso de fecha de un dispositivo."""
+    with sesion() as con:
+        cur = con.execute(
+            'UPDATE dispositivos SET fecha_desde = ? WHERE serie = ?',
+            (fecha, serie))
+        return cur.rowcount > 0

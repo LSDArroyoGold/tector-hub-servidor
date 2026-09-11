@@ -175,6 +175,9 @@ def listar_dispositivos(usuario=Depends(usuario_actual)):
     for disp in db.dispositivos_de(usuario['id']):
         info = {'serie': disp['serie'], 'apodo': disp['apodo'],
                 'drive_path': disp['drive_path'], 'estado': None,
+                # Piso de fecha: si esta, la app avisa que hay historia
+                # anterior que se esta dejando afuera a proposito.
+                'fecha_desde': disp.get('fecha_desde'),
                 # Un Tector con software 1.1 no se registra solo ni publica
                 # estado.json: lo cargo alguien a mano. La app lo muestra
                 # distinto en vez de reportarlo como equipo mudo.
@@ -250,7 +253,8 @@ def log(serie: str = Path(pattern=r'^\d{4}$'), usuario=Depends(usuario_actual)):
 @app.get('/dispositivos/{serie}/fechas', tags=['detecciones'])
 def fechas(serie: str = Path(pattern=r'^\d{4}$'), usuario=Depends(usuario_actual)):
     disp = dispositivo_propio(serie, usuario)
-    return {'fechas': drive.fechas_con_detecciones(disp['drive_path'])}
+    return {'fechas': drive.fechas_con_detecciones(disp['drive_path'],
+                                                   desde=disp.get('fecha_desde'))}
 
 
 @app.get('/dispositivos/{serie}/detecciones', tags=['detecciones'])
@@ -262,7 +266,8 @@ def detecciones(serie: str = Path(pattern=r'^\d{4}$'),
                 usuario=Depends(usuario_actual)):
     disp = dispositivo_propio(serie, usuario)
     return {'detecciones': drive.detecciones(disp['drive_path'], fecha, especie,
-                                             limite)}
+                                             limite,
+                                             desde=disp.get('fecha_desde'))}
 
 
 @app.get('/dispositivos/{serie}/audio', tags=['detecciones'])
@@ -309,7 +314,7 @@ def estadisticas(serie: str = Path(pattern=r'^\d{4}$'),
     """
     disp = dispositivo_propio(serie, usuario)
     todas, fechas_recuperadas = drive.detecciones_completas(
-        disp['drive_path'], limite=20000)
+        disp['drive_path'], limite=20000, desde=disp.get('fecha_desde'))
 
     fechas_ordenadas = sorted({d['fecha'] for d in todas}, reverse=True)[:dias]
     recientes = [d for d in todas if d['fecha'] in fechas_ordenadas]
@@ -691,7 +696,8 @@ def resumen(usuario=Depends(usuario_actual)):
         if not disp['drive_path']:
             continue
         try:
-            recientes = drive.detecciones(disp['drive_path'], limite=500)
+            recientes = drive.detecciones(disp['drive_path'], limite=500,
+                                          desde=disp.get('fecha_desde'))
         except drive.ErrorDrive:
             continue
         if recientes:
