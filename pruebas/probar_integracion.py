@@ -383,6 +383,19 @@ def main():
            guardados and guardados[0].read_bytes().startswith(b'ID3'))
 
         print()
+        print('-- los limites que pide la app de verdad --')
+        # La pantalla de cantos pide limite=2000. El tope del endpoint estaba
+        # en 1000, asi que devolvia 422 SIEMPRE, desde el primer dia, y no lo
+        # agarro nadie: las pruebas nunca habian pedido mas de 1000. Se
+        # comprueba con el numero exacto que usa la app, no con uno comodo.
+        cod, _ = pedir(base + '/dispositivos/4417/detecciones?limite=2000', tk)
+        ck('acepta el limite=2000 que pide la vista de cantos', cod == 200,
+           'http ' + str(cod))
+        cod, _ = pedir(base + '/dispositivos/4417/detecciones?limite=999999', tk)
+        ck('pero sigue rechazando un limite absurdo', cod == 422,
+           'http ' + str(cod))
+
+        print()
         print('-- piso de fecha por dispositivo --')
         # El caso real: un Tector con detecciones anteriores a estar bien
         # instalado. Se dejan afuera sin borrar nada de Drive.

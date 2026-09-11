@@ -306,7 +306,13 @@ def detecciones(serie: str = Path(pattern=r'^\d{4}$'),
                 fecha: str | None = Query(default=None,
                                           pattern=r'^\d{4}-\d{2}-\d{2}$'),
                 especie: str | None = Query(default=None, max_length=96),
-                limite: int = Query(default=200, ge=1, le=1000),
+                # 5000 y no 1000: la pantalla de cantos de la app pide
+                # 2000 de una --de ese unico listado salen sus tres
+                # vistas-- y el tope viejo la rechazaba con 422 SIEMPRE.
+                # Fallaba desde el primer dia y no lo agarro ninguna
+                # prueba, porque las de integracion nunca pidieron mas
+                # de 1000 y en modo demostracion no se llama al servidor.
+                limite: int = Query(default=200, ge=1, le=5000),
                 usuario=Depends(usuario_actual)):
     disp = dispositivo_propio(serie, usuario)
     return {'detecciones': drive.detecciones(disp['drive_path'], fecha, especie,
