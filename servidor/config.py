@@ -49,7 +49,11 @@ RCLONE_BIN = os.environ.get('TECTOR_RCLONE', 'rclone')
 RCLONE_CONFIG = os.environ.get(
     'TECTOR_RCLONE_CONFIG', str(Path.home() / '.config' / 'rclone' / 'rclone.conf'))
 RCLONE_REMOTE = os.environ.get('TECTOR_RCLONE_REMOTE', 'gdrive')
-RCLONE_TIMEOUT_S = int(os.environ.get('TECTOR_RCLONE_TIMEOUT', '60'))
+# 180 y no 60: el servidor corre en un telefono, con la red del telefono.
+# Un listado recursivo de una carpeta de fecha son ~5,6 s en reposo, pero
+# con Drive lento o varias llamadas encima se pasaba de 60 y el usuario
+# veia un 500 sin explicacion. Mejor esperar que fallar.
+RCLONE_TIMEOUT_S = int(os.environ.get('TECTOR_RCLONE_TIMEOUT', '180'))
 
 # --- Respaldo de la base ---
 # A que remoto de rclone van los respaldos. Por defecto el mismo que los

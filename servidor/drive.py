@@ -24,12 +24,16 @@ import re
 import subprocess
 import sys
 import time
-from threading import Lock
+from threading import Event, Lock
 
 from . import config
 
 _cache = {}
 _cache_lock = Lock()
+
+# Listados que alguien esta pidiendo AHORA: clave -> Event que se dispara
+# cuando termina. Ver listar().
+_en_curso = {}
 
 # Rufous_Hornero-92-2026-09-09-birdnet-09:52:26.mp3
 # El separador acepta birdnet y tectornet: los archivos historicos que ya
@@ -118,16 +122,66 @@ def preservar(ruta_origen, nombre_destino):
         return False
 
 
+def _leer_cache(clave):
+    with _cache_lock:
+        guardado = _cache.get(clave)
+        if guardado and time.time() - guardado[0] < config.CACHE_SEGUNDOS:
+            return guardado[1]
+    return None
+
+
 def listar(ruta, recursivo=False, solo_directorios=False, usar_cache=True):
     """lsjson de una carpeta. Devuelve [] si la carpeta no existe todavia --
-    es el caso normal de un Tector que aun no subio nada, no un error."""
+    es el caso normal de un Tector que aun no subio nada, no un error.
+
+    UN SOLO RCLONE POR LISTADO A LA VEZ. Si dos hilos piden lo mismo, el
+    segundo espera el resultado del primero en vez de lanzar su propio
+    rclone.
+
+    No es una optimizacion de manual: en el telefono se midio que un
+    lsjson recursivo de una carpeta de fecha tarda ~5,6 s solo, pero pasaba
+    de los 60 s de timeout cuando el hilo que calienta el cache y el pedido
+    de la app hacian LA MISMA llamada al mismo tiempo. Dos rclone peleandose
+    la red del telefono tardan mucho mas que el doble. El sintoma era un
+    "Drive no respondio a tiempo" intermitente, de esos que no se reproducen
+    cuando uno los va a buscar.
+    """
     clave = (ruta, recursivo, solo_directorios)
     if usar_cache:
-        with _cache_lock:
-            guardado = _cache.get(clave)
-            if guardado and time.time() - guardado[0] < config.CACHE_SEGUNDOS:
-                return guardado[1]
+        guardado = _leer_cache(clave)
+        if guardado is not None:
+            return guardado
 
+        # Si ya hay alguien trayendo esto, esperarlo.
+        with _cache_lock:
+            evento = _en_curso.get(clave)
+            primero = evento is None
+            if primero:
+                evento = Event()
+                _en_curso[clave] = evento
+        if not primero:
+            # El +30 es para no quedarse colgado si el otro hilo muere sin
+            # avisar: se espera un poco mas que su propio timeout y se sigue.
+            evento.wait(timeout=config.RCLONE_TIMEOUT_S + 30)
+            guardado = _leer_cache(clave)
+            if guardado is not None:
+                return guardado
+            # El otro fallo o vencio. Se sigue de largo y se intenta solo,
+            # que es mejor que devolver vacio.
+    else:
+        primero = False
+
+    try:
+        return _listar_real(clave, ruta, recursivo, solo_directorios)
+    finally:
+        if primero:
+            with _cache_lock:
+                evento = _en_curso.pop(clave, None)
+            if evento:
+                evento.set()
+
+
+def _listar_real(clave, ruta, recursivo, solo_directorios):
     argumentos = ['lsjson', _remoto(ruta)]
     if recursivo:
         argumentos.append('--recursive')

@@ -221,6 +221,41 @@ def main_pruebas():
     ck('un nombre que no sigue el patron se descarta',
        _parsear_nombre('cualquier_cosa.mp3') is None)
 
+    print()
+    print('-- un solo rclone por listado (single-flight) --')
+    import threading as _th
+    import time as _tm
+    from servidor import drive as _dr
+
+    llamadas = []
+    original = _dr._correr
+
+    def _lento(argumentos, entrada=None, binario=False):
+        # Simula el lsjson lento del telefono: sin la demora, los hilos
+        # terminan uno tras otro y la carrera no se llega a dar.
+        llamadas.append(tuple(argumentos))
+        _tm.sleep(0.4)
+        return '[]'
+
+    _dr._correr = _lento
+    _dr.invalidar('')
+    try:
+        hilos = [_th.Thread(target=lambda: _dr.listar('X/Detecciones/2026-09-10',
+                                                      recursivo=True))
+                 for _ in range(5)]
+        for h in hilos:
+            h.start()
+        for h in hilos:
+            h.join(timeout=10)
+    finally:
+        _dr._correr = original
+
+    ck('cinco pedidos simultaneos del mismo listado hacen UN solo rclone (' +
+       str(len(llamadas)) + ')', len(llamadas) == 1)
+    ck('y el resultado queda cacheado para el que venga despues',
+       _dr.listar('X/Detecciones/2026-09-10', recursivo=True) == [])
+    _dr.invalidar('')
+
     print('\n-- lectura de los resumenes diarios --')
     from servidor.drive import _parsear_resumen
 
