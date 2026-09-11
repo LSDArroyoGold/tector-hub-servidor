@@ -50,6 +50,11 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
+> Las pruebas piden algo más (`httpx`), que está en `requirements-pruebas.txt`
+> aparte a propósito: en el teléfono no hace falta. Para correrlas desde la
+> notebook: `pip install -r requirements.txt -r requirements-pruebas.txt` y
+> después `python -m pruebas.probar_api` y `python -m pruebas.probar_integracion`.
+
 > `requirements.txt` trae `bcrypt`, que es código compilado. En la Debian
 > aarch64 hay rueda y entra en segundos; si por lo que sea no la encontrara,
 > `apt install -y build-essential libffi-dev` y reintentar. Es el único
@@ -147,6 +152,23 @@ pueden estar los tres logueados a la vez sin pisarse.
 .venv/bin/python -m scripts.precargar_serie 0001 --heredado --drive-path "Tector 1"
 ```
 
+El número de serie vive solo acá: la 1.1 no lo conoce ni lo necesita.
+
+> **Hay cambios en vuelo hacia ese equipo** (pusheados el 11/9). Los baja solo
+> `actualizar_repo.sh` en la próxima apertura de ventana, sin que nadie haga
+> nada:
+>
+> - **el borrado automático de Drive queda apagado** (`BORRAR_DE_DRIVE=NO` en
+>   `limpiar_retencion.sh` — el interruptor va ahí y no en `config_general.txt`,
+>   que no se sincroniza);
+> - **empieza a escribir un resumen diario** en `Tector 1/Resumenes`, y en su
+>   primera corrida resume de una todo el historial que hoy existe únicamente
+>   como nombres de archivo.
+>
+> Conviene mirar `Tector 1/Resumenes` en Drive después de esa ventana: si están
+> los CSV viejos, el historial quedó a salvo. Si no, la carpeta local ya se
+> había vaciado y solo se resumirá de acá en adelante.
+
 **Tector 2** — migrar a la 2.1 y correr el instalador:
 
 ```bash
@@ -209,10 +231,26 @@ Commit y push; GitHub Pages reconstruye solo en un par de minutos.
 1. Abrir la app, entrar con la cuenta nueva
 2. Vincular el Tector 1 con `0001`
 3. Tienen que verse sus detecciones, escucharse un audio, y bajarse un zip
-4. Cambiar la duración de una ventana y confirmar que el diálogo dice
+4. El chip de estado del Tector 1 tiene que decir algo real —batería en %,
+   hora de la próxima ventana— y no «sin reporte de estado». Eso sale de su
+   log, no de un `estado.json`, que esa versión no escribe; la pantalla del
+   dispositivo lo aclara. Si dice «Quedó una ventana sin cerrar», el equipo
+   dejó de escribir en medio de una ventana: mirar el log antes de seguir.
+5. Cambiar la duración de una ventana y confirmar que el diálogo dice
    **cuándo** se va a aplicar
-5. Reportar una detección y ver que aparece en
+6. Reportar una detección y ver que aparece en
    `.venv/bin/python -m scripts.exportar_reportes`
+
+## Lo que se sabe que falta
+
+Nada de esto bloquea el lanzamiento; está acá para que no se descubra solo.
+
+| | |
+|---|---|
+| El servidor no lee `Resumenes/` | Los CSV diarios se escriben y se suben, pero todavía nadie los consume: las estadísticas se siguen calculando de los nombres de archivo. El día que falte audio va a aparecer un hueco aunque el dato esté guardado. |
+| Sin notificaciones | Decidido lanzar así. El panel guarda las preferencias pero no hay quién las envíe. |
+| El Tector 2 no se apaga solo | Falta el circuito de corte de energía; la Pi queda encendida. Es anterior a todo esto y está documentado en `set_wake_rtc.py` y el README de la 2.1. |
+| Un Drive por usuario | Para cuando haya Tectors de terceros. Hoy todo va a la cuenta del laboratorio. |
 
 ## Si algo no anda
 
