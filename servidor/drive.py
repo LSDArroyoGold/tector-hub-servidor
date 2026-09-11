@@ -122,12 +122,19 @@ def preservar(ruta_origen, nombre_destino):
         return False
 
 
+# Marca de "no hay nada en el cache". No se usa None porque None ES un valor
+# valido que hay que poder cachear: estado.json de un Tector 1.1 no existe, y
+# ese "no existe" es un rclone que falla LENTO. Sin cachearlo, cada pedido de
+# /dispositivos volvia a pagarlo (medido: 54 s la pantalla inicial).
+_NADA = object()
+
+
 def _leer_cache(clave):
     with _cache_lock:
         guardado = _cache.get(clave)
         if guardado and time.time() - guardado[0] < config.CACHE_SEGUNDOS:
             return guardado[1]
-    return None
+    return _NADA
 
 
 def _con_cache(clave, usar_cache, traer):
@@ -151,7 +158,7 @@ def _con_cache(clave, usar_cache, traer):
         return traer()
 
     guardado = _leer_cache(clave)
-    if guardado is not None:
+    if guardado is not _NADA:
         return guardado
 
     with _cache_lock:
@@ -166,7 +173,7 @@ def _con_cache(clave, usar_cache, traer):
         # se espera un poco mas que su propio timeout y se sigue.
         evento.wait(timeout=config.RCLONE_TIMEOUT_S + 30)
         guardado = _leer_cache(clave)
-        if guardado is not None:
+        if guardado is not _NADA:
             return guardado
         # El otro fallo o vencio. Se intenta solo, que es mejor que nada.
         return traer()
@@ -261,17 +268,23 @@ def estado(drive_path):
     "todavia no publico su estado" con la misma cara en los dos casos. El
     motivo se escribe al log del servicio, que es donde uno lo va a buscar.
     """
-    try:
-        return json.loads(leer_texto_cacheado(f'{drive_path}/estado.json'))
-    except ErrorDrive as e:
-        if 'not found' not in str(e).lower():
-            print(f'[drive] no se pudo leer {drive_path}/estado.json: {e}',
+    def _traer():
+        try:
+            return json.loads(leer_texto(f'{drive_path}/estado.json'))
+        except ErrorDrive as e:
+            if 'not found' not in str(e).lower():
+                print(f'[drive] no se pudo leer {drive_path}/estado.json: {e}',
+                      file=sys.stderr)
+            return None
+        except ValueError as e:
+            print(f'[drive] {drive_path}/estado.json no es JSON valido: {e}',
                   file=sys.stderr)
-        return None
-    except ValueError as e:
-        print(f'[drive] {drive_path}/estado.json no es JSON valido: {e}',
-              file=sys.stderr)
-        return None
+            return None
+
+    # Se cachea el RESULTADO, no la lectura: asi el None de "no existe"
+    # tambien queda guardado y no se vuelve a pagar en cada pedido.
+    return _con_cache((f'{drive_path}/estado.json', 'estado', False), True,
+                      _traer)
 
 
 # El log de la 1.1 tiene una linea por evento de ventana, y ahi adentro esta
@@ -465,13 +478,17 @@ def detecciones(drive_path, fecha=None, especie=None, limite=200, desde=None,
         salida = _de_ruta(f'{raiz}/{fecha}/{especie}', False)
     elif fecha:
         salida = _de_ruta(f'{raiz}/{fecha}', True)
-    elif todo:
+    elif todo and not desde:
         salida = _de_ruta(raiz, True)
     else:
+        # Con piso de fecha, "todo" son pocas carpetas: se listan una por una
+        # y listo. Antes se listaba el arbol ENTERO y el piso se aplicaba
+        # despues, en memoria: para el Tector 1 eso era trabajar sobre 150
+        # fechas para quedarse con 4, y 62 s de estadisticas.
         salida = []
         for f in fechas_con_detecciones(drive_path, desde=desde):
             salida.extend(_de_ruta(f'{raiz}/{f}', True))
-            if len(salida) >= limite:
+            if not todo and len(salida) >= limite:
                 break
 
     if desde:
