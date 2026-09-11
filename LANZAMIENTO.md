@@ -264,11 +264,40 @@ Nada de esto bloquea el lanzamiento; está acá para que no se descubra solo.
 | El Tector 2 no se apaga solo | Falta el circuito de corte de energía; la Pi queda encendida. Es anterior a todo esto y está documentado en `set_wake_rtc.py` y el README de la 2.1. |
 | Un Drive por usuario | Para cuando haya Tectors de terceros. Hoy todo va a la cuenta del laboratorio. |
 
+## Operación diaria
+
+Todo por SSH al teléfono (`ssh celu`), y adentro de la Debian para lo que
+toca el servidor (`proot-distro login debian`).
+
+| Quiero… | Comando |
+|---|---|
+| Ver si está andando | `bash ~/servidor/ctl.sh estado` |
+| Ver el log del servidor | `bash ~/servidor/ctl.sh log tector-hub-servidor 40` |
+| Reiniciarlo | `bash ~/servidor/ctl.sh reiniciar tector-hub-servidor` |
+| Actualizar el código | `cd /opt/tector-hub-servidor && git pull` y reiniciar |
+| Poner un piso de fecha a un Tector | `.venv/bin/python -m scripts.fecha_desde 0001 2026-09-08` |
+| Quitárselo | `.venv/bin/python -m scripts.fecha_desde 0001 --quitar` |
+| Ver los pisos | `.venv/bin/python -m scripts.fecha_desde --listar` |
+| Crear otra cuenta | `.venv/bin/python -m scripts.crear_usuario <usuario> "<nombre>"` |
+
+Los scripts del servidor necesitan el entorno cargado:
+`set -a; . /etc/tector-hub/entorno; set +a` antes de correrlos.
+
+**El servidor está en un teléfono y eso se nota en Drive.** Cada listado de
+una carpeta de fecha son ~5 s y cada lectura de archivo un viaje de red. Por
+eso hay un caché de 15 minutos, un hilo que lo precalienta cada 10, y una
+regla de «un solo rclone por listado». Con eso, todo lo que pide la app
+responde en menos de un segundo (medido el 11/9: `/dispositivos` 0,2 s,
+cantos 0,4 s, estadísticas 0,3 s). **Los primeros dos o tres minutos después
+de reiniciar el servidor son lentos**: el caché está frío hasta que el
+precalentador termina su primera vuelta. Es normal, no es una falla.
+
 ## Si algo no anda
 
 ```bash
-bash ~/servidor/ctl.sh log tector-hub 50
+bash ~/servidor/ctl.sh log tector-hub-servidor 50
 ```
 
 El servidor escribe al log el motivo cuando no puede leer Drive. Los errores
-de rclone salen ahí con todas las letras.
+de rclone salen ahí con todas las letras. Si dice «Drive no respondió a
+tiempo» de forma repetida, es la red del teléfono, no el código.
