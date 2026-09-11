@@ -1,14 +1,25 @@
 # Lanzamiento de Tector Hub
 
-Guion para poner el sistema en marcha. Escrito el 10/9/2026.
-
-Todo lo que está acá **necesita a alguien del laboratorio**: son autorizaciones
-de cuentas de Google y sesiones interactivas que no se pueden automatizar. La
-parte de código ya está hecha y probada.
-
-Tiempo estimado: **una hora**, la mayor parte esperando a rclone.
-
----
+> **HECHO el 11/9/2026.** El sistema está en marcha. Lo que sigue queda como
+> registro de cómo se instaló y como referencia para reinstalarlo.
+>
+> | | |
+> |---|---|
+> | Servidor | S10e, `/opt/tector-hub-servidor`, supervisado por `~/servidor/ctl.sh` |
+> | En internet | **https://s10e-servidor-1.tail1b934d.ts.net** vía Tailscale Funnel |
+> | App | https://lsdarroyogold.github.io/tector-hub-app/ (apunta ahí, instalable) |
+> | Cuenta | `lsd` |
+> | Drive | `lsdarroyogold@gmail.com`, remoto `gdrive`, scope **`drive` completo** |
+> | Tector 1 | serie `0001`, heredado, `Tector 1/` — vinculado y funcionando |
+>
+> **Lo que NO se hizo, a propósito:** no hay respaldo de la base (ver abajo),
+> y el Tector 2 todavía no se migró a la 2.1.
+>
+> **Deuda con fecha:** rclone avisa que su `client_id` compartido **se retira
+> durante 2026**. Afecta a este servidor *y a los Tectors en el campo*, que
+> usan el mismo. Hay que crear un client_id propio del laboratorio en Google
+> Cloud Console (es gratis) y ponerlo en los tres lados antes de que Google
+> lo corte.
 
 ## Antes de empezar
 
@@ -247,6 +258,8 @@ Nada de esto bloquea el lanzamiento; está acá para que no se descubra solo.
 
 | | |
 |---|---|
+| Sin respaldo de la base | Decidido el 11/9. El diseño mandaba el respaldo a **otra** cuenta, para que no se perdiera junto con los datos; como los datos ahora también viven en lsdarroyogold, un respaldo ahí no protegería del riesgo que importa. Se prefirió no tenerlo antes que aparentar cobertura. Empieza a doler cuando haya **reportes de error**, que son audio etiquetado por una persona. Se enciende autorizando un segundo remoto y poniendo su nombre en `TECTOR_RESPALDO_REMOTE`. |
+| El `client_id` de rclone se retira en 2026 | Ver arriba. Es lo más urgente de esta tabla porque tiene fecha impuesta desde afuera y voltea también a los equipos de campo. |
 | Sin notificaciones | Decidido lanzar así. El panel guarda las preferencias pero no hay quién las envíe. |
 | El Tector 2 no se apaga solo | Falta el circuito de corte de energía; la Pi queda encendida. Es anterior a todo esto y está documentado en `set_wake_rtc.py` y el README de la 2.1. |
 | Un Drive por usuario | Para cuando haya Tectors de terceros. Hoy todo va a la cuenta del laboratorio. |
