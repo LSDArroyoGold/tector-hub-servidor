@@ -247,7 +247,6 @@ Nada de esto bloquea el lanzamiento; está acá para que no se descubra solo.
 
 | | |
 |---|---|
-| El servidor no lee `Resumenes/` | Los CSV diarios se escriben y se suben, pero todavía nadie los consume: las estadísticas se siguen calculando de los nombres de archivo. El día que falte audio va a aparecer un hueco aunque el dato esté guardado. |
 | Sin notificaciones | Decidido lanzar así. El panel guarda las preferencias pero no hay quién las envíe. |
 | El Tector 2 no se apaga solo | Falta el circuito de corte de energía; la Pi queda encendida. Es anterior a todo esto y está documentado en `set_wake_rtc.py` y el README de la 2.1. |
 | Un Drive por usuario | Para cuando haya Tectors de terceros. Hoy todo va a la cuenta del laboratorio. |

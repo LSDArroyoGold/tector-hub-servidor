@@ -61,6 +61,28 @@ def armar_drive(base):
             (carpeta / nombre).write_bytes(b'ID3' + bytes(400))
             creados += 1
 
+    # Un dia cuyo audio ya no esta --se limpio la carpeta a mano-- pero que
+    # dejo su resumen. Es el caso que justifica que Resumenes/ exista: sin
+    # leerlo, estas detecciones desaparecen de las estadisticas como si nunca
+    # hubieran ocurrido.
+    resumenes = raiz / 'Resumenes'
+    resumenes.mkdir(parents=True, exist_ok=True)
+    cab = chr(0xFEFF) + 'fecha,hora,especie,confianza,serie,archivo,bytes' + chr(10)
+
+    viejo = (hoy - timedelta(days=9)).isoformat()
+    contenido = cab
+    for h_, e_, c_ in [('06:12:00', 'Picui Ground Dove', 55),
+                       ('07:03:00', 'Picui Ground Dove', 71),
+                       ('19:44:00', 'Monk Parakeet', 83)]:
+        contenido += viejo + ',' + h_ + ',' + e_ + ',' + str(c_) + ',4417,x.mp3,1234' + chr(10)
+    (resumenes / (viejo + '.csv')).write_text(contenido, encoding='utf-8')
+
+    # Y el resumen del dia de HOY, que si tiene audio. No se tiene que contar
+    # dos veces: la regla es por dia entero, y si hay audio manda el audio.
+    (resumenes / (hoy.isoformat() + '.csv')).write_text(
+        cab + hoy.isoformat() + ',09:50:26,Rufous Hornero,92,4417,x.mp3,1234' + chr(10),
+        encoding='utf-8')
+
     (raiz / 'estado.json').write_text(json.dumps({
         'version_formato': 1, 'serie': '4417',
         'generado': f'{hoy.isoformat()}T19:12:00',
@@ -261,9 +283,38 @@ def main():
         ck('lista los dias con detecciones', len(r['fechas']) == 3)
 
         cod, r = pedir(base + '/dispositivos/4417/estadisticas', tk)
-        ck('calcula estadisticas sobre datos reales', r['total'] == 9, str(r['total']))
+        # 9 detecciones con audio + 3 recuperadas del resumen de un dia cuyo
+        # audio ya no esta.
+        ck('calcula estadisticas sobre datos reales', r['total'] == 12, str(r['total']))
         ck('el histograma tiene 24 horas', len(r['histograma_horas']) == 24)
-        ck('cuenta 3 especies', r['especies_distintas'] == 3)
+        ck('cuenta 5 especies (3 con audio + 2 solo en resumen)',
+           r['especies_distintas'] == 5, str(r['especies_distintas']))
+
+        print()
+        print('-- dias que ya no tienen audio --')
+        viejo = (date.today() - timedelta(days=9)).isoformat()
+        ck('el dia sin audio se declara', r.get('dias_sin_audio') == [viejo],
+           str(r.get('dias_sin_audio')))
+        top = {e['especie']: e['detecciones'] for e in r['top_especies']}
+        ck('sus especies entran en el ranking',
+           'Picui Ground Dove' in top and 'Monk Parakeet' in top)
+        ck('con la cuenta correcta', top.get('Picui Ground Dove') == 2)
+        ck('el histograma toma sus horas',
+           r['histograma_horas'][6] >= 1 and r['histograma_horas'][19] >= 1)
+        por_fecha = {x['fecha']: x['detecciones'] for x in r['por_fecha']}
+        ck('el dia recuperado suma sus 3 detecciones',
+           por_fecha.get(viejo) == 3, str(por_fecha.get(viejo)))
+        ck('un dia con audio Y resumen no se cuenta dos veces',
+           por_fecha.get(date.today().isoformat()) == 3,
+           str(por_fecha.get(date.today().isoformat())))
+
+        cod, dets = pedir(base + '/dispositivos/4417/detecciones', tk)
+        ck('el explorador sigue mostrando solo lo que se puede escuchar',
+           all(d['fecha'] != viejo for d in dets['detecciones']))
+        cod, fs = pedir(base + '/dispositivos/4417/fechas', tk)
+        ck('y las fechas navegables tampoco lo incluyen', viejo not in fs['fechas'])
+        ck('toda deteccion que se muestra tiene ruta para reproducir',
+           all(d.get('ruta') for d in dets['detecciones']))
 
         print('\n-- audio y descargas --')
         import urllib.parse

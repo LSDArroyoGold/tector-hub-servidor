@@ -365,6 +365,143 @@ def fechas_con_detecciones(drive_path):
     return sorted(fechas, reverse=True)
 
 
+# ---------- resumenes diarios ----------
+#
+# Los dispositivos escriben, al cerrar cada ventana, un CSV por dia en
+# <drive_path>/Resumenes/<fecha>.csv con una fila por deteccion: fecha, hora,
+# especie, confianza, serie, archivo, bytes. Pesa ~5 KB contra los ~10-50 MB
+# del audio del mismo dia.
+#
+# POR QUE IMPORTA ACA: hasta que existieron, el nombre del mp3 era el unico
+# registro de una deteccion en todo el proyecto. El dia que el audio no esta
+# --se limpio una carpeta vieja a mano, que es la politica desde el
+# 11/9/2026-- la deteccion desaparecia de las estadisticas como si nunca
+# hubiera ocurrido. El resumen la mantiene.
+#
+# Lo que NO hace: reponer el audio. Una deteccion que viene de un CSV no se
+# puede escuchar ni descargar, y por eso viaja con 'ruta': None y
+# 'desde_resumen': True, para que rio abajo nadie ofrezca un boton de play
+# que no puede funcionar.
+
+# Un CSV de un dia pasado no cambia nunca: el dispositivo solo reescribe el
+# dia en curso. Asi que se cachea sin vencimiento, y solo para dias cerrados.
+_cache_resumen = {}
+
+_COLUMNAS_RESUMEN = ('fecha', 'hora', 'especie', 'confianza')
+
+
+def fechas_con_resumen(drive_path):
+    """Fechas que tienen CSV en Resumenes/, mas nuevas primero."""
+    fechas = []
+    for entrada in listar(f'{drive_path}/Resumenes'):
+        if entrada.get('IsDir'):
+            continue
+        nombre = entrada.get('Name', '')
+        if nombre.endswith('.csv') and re.fullmatch(r'\d{4}-\d{2}-\d{2}',
+                                                   nombre[:-4]):
+            fechas.append(nombre[:-4])
+    return sorted(fechas, reverse=True)
+
+
+def _parsear_resumen(texto, fecha):
+    """Filas de un CSV de resumen, en el mismo formato que detecciones()."""
+    import csv as _csv
+
+    # El CSV se escribe con BOM (utf-8-sig) para que Excel no rompa los
+    # acentos. csv no lo saca solo cuando el texto ya viene decodificado.
+    if texto.startswith('\ufeff'):
+        texto = texto[1:]
+
+    salida = []
+    for fila in _csv.DictReader(texto.splitlines()):
+        if not all(fila.get(c) for c in _COLUMNAS_RESUMEN):
+            continue
+        # El nombre del archivo manda: una fila con otra fecha adentro esta
+        # mal y contarla desplazaria un dia entero en el histograma.
+        if fila['fecha'] != fecha:
+            continue
+        try:
+            confianza = int(fila['confianza'])
+        except (TypeError, ValueError):
+            continue
+        salida.append({
+            'especie': fila['especie'],
+            'especie_carpeta': fila['especie'].replace(' ', '_'),
+            'confianza': confianza,
+            'fecha': fila['fecha'],
+            'hora': fila['hora'],
+            # Sin audio detras: el que consuma esto no puede reproducirlo.
+            'ruta': None,
+            'bytes': None,
+            'desde_resumen': True,
+        })
+    return salida
+
+
+def detecciones_de_resumen(drive_path, fechas):
+    """Detecciones de esas fechas, leidas de los CSV en vez del audio.
+
+    Es una llamada de red por fecha, asi que quien llama decide cuantas pide
+    --normalmente solo las fechas cuyo audio ya no esta--. Una fecha que
+    falle o venga vacia se saltea en silencio: es mejor una estadistica
+    incompleta que un error en una pantalla que hasta ayer andaba.
+    """
+    from datetime import date as _date
+    hoy = _date.today().isoformat()
+
+    salida = []
+    for fecha in fechas:
+        clave = (drive_path, fecha)
+        if clave in _cache_resumen:
+            salida.extend(_cache_resumen[clave])
+            continue
+        try:
+            texto = leer_texto(f'{drive_path}/Resumenes/{fecha}.csv')
+        except ErrorDrive:
+            continue
+        filas = _parsear_resumen(texto, fecha)
+        if fecha < hoy:
+            _cache_resumen[clave] = filas
+        salida.extend(filas)
+    return salida
+
+
+# Tope de CSV que se leen en un pedido. Cada uno es una llamada de red, y sin
+# tope un equipo con dos anios de historial haria 700 llamadas para dibujar
+# un histograma. Con dos ventanas por dia, 180 dias es mas historial del que
+# muestra cualquier pantalla de la app.
+MAX_RESUMENES = 180
+
+
+def detecciones_completas(drive_path, limite=20000):
+    """Todo lo que se sabe: el audio que esta, mas el que ya no esta.
+
+    La regla es por dia entero, igual que la de retencion: si un dia tiene
+    audio en Drive se usa el audio --que ademas se puede escuchar--, y si no
+    tiene nada se cae al resumen. Nunca se mezclan las dos fuentes dentro del
+    mismo dia, que daria duplicados o huecos raros segun cual llegue primero.
+
+    Devuelve (detecciones, fechas_solo_resumen) para que quien muestre esto
+    pueda decir de donde salio.
+    """
+    audio = detecciones(drive_path, limite=limite)
+    con_audio = {d['fecha'] for d in audio}
+
+    try:
+        faltantes = [f for f in fechas_con_resumen(drive_path)
+                     if f not in con_audio][:MAX_RESUMENES]
+    except ErrorDrive:
+        return audio, []
+
+    if not faltantes:
+        return audio, []
+
+    recuperadas = detecciones_de_resumen(drive_path, faltantes)
+    todas = audio + recuperadas
+    todas.sort(key=lambda d: (d['fecha'], d['hora']), reverse=True)
+    return todas, sorted({d['fecha'] for d in recuperadas}, reverse=True)
+
+
 # ---------- escritura ----------
 
 PLANTILLA_HORARIOS = """# Escrito por Tector Hub el {sello}.

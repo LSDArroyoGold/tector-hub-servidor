@@ -297,13 +297,19 @@ def audio(ruta: str = Query(max_length=512),
 def estadisticas(serie: str = Path(pattern=r'^\d{4}$'),
                  dias: int = Query(default=30, ge=1, le=365),
                  usuario=Depends(usuario_actual)):
-    """Las metricas del panel, calculadas parseando nombres de archivo.
+    """Las metricas del panel.
 
-    Todo lo que sale de aca se deriva del nombre; no hay ninguna otra fuente
-    de datos de detecciones en el sistema.
+    Salen de dos fuentes que se complementan: los nombres de archivo del
+    audio que esta en Drive, y --para los dias cuyo audio ya no esta-- los
+    CSV de Resumenes/. Ver drive.detecciones_completas() para la regla de
+    cual se usa cuando.
+
+    Sin lo segundo, limpiar una carpeta vieja de Drive borraba tambien el
+    historial: el nombre del mp3 era el unico registro que existia.
     """
     disp = dispositivo_propio(serie, usuario)
-    todas = drive.detecciones(disp['drive_path'], limite=20000)
+    todas, fechas_recuperadas = drive.detecciones_completas(
+        disp['drive_path'], limite=20000)
 
     fechas_ordenadas = sorted({d['fecha'] for d in todas}, reverse=True)[:dias]
     recientes = [d for d in todas if d['fecha'] in fechas_ordenadas]
@@ -316,7 +322,9 @@ def estadisticas(serie: str = Path(pattern=r'^\d{4}$'),
                     if d['fecha'] not in fechas_ordenadas}
     nuevas = [
         {'especie': d['especie'], 'fecha': d['fecha'], 'hora': d['hora'],
-         'confianza': d['confianza'], 'ruta': d['ruta']}
+         'confianza': d['confianza'], 'ruta': d['ruta'],
+         # Un hallazgo recuperado de un resumen no tiene audio para escuchar.
+         'desde_resumen': bool(d.get('desde_resumen'))}
         for d in sorted(recientes, key=lambda x: (x['fecha'], x['hora']))
         if d['especie'] not in vistas_antes
     ]
@@ -343,6 +351,11 @@ def estadisticas(serie: str = Path(pattern=r'^\d{4}$'),
         'confianza_media': round(sum(confianzas) / len(confianzas), 1)
         if confianzas else None,
         'hallazgos': destacados[:5],
+        # Dias que entran en el calculo pero de los que ya no queda audio.
+        # La app lo dice, para que un numero que no cierra con lo que se ve
+        # en el explorador tenga una explicacion a la vista.
+        'dias_sin_audio': [f for f in fechas_recuperadas
+                           if f in fechas_ordenadas],
     }
 
 

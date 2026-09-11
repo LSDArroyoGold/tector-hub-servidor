@@ -221,6 +221,52 @@ def main_pruebas():
     ck('un nombre que no sigue el patron se descarta',
        _parsear_nombre('cualquier_cosa.mp3') is None)
 
+    print('\n-- lectura de los resumenes diarios --')
+    from servidor.drive import _parsear_resumen
+
+    BOM = chr(0xFEFF)
+    CAB = 'fecha,hora,especie,confianza,serie,archivo,bytes'
+    def csv(*filas):
+        return BOM + CAB + chr(10) + chr(10).join(filas) + chr(10)
+
+    r = _parsear_resumen(
+        csv('2026-05-02,07:41:00,Turdus rufiventris,73,4417,x.mp3,1234'),
+        '2026-05-02')
+    ck('lee una fila', len(r) == 1)
+    ck('el BOM no se cuela en la primera columna', r[0]['fecha'] == '2026-05-02')
+    ck('la confianza vuelve como entero', r[0]['confianza'] == 73)
+    ck('la especie mantiene el espacio', r[0]['especie'] == 'Turdus rufiventris')
+    ck('y ofrece la forma de carpeta con guion bajo',
+       r[0]['especie_carpeta'] == 'Turdus_rufiventris')
+    ck('viene marcada como recuperada', r[0]['desde_resumen'] is True)
+    ck('sin ruta: no hay audio que reproducir', r[0]['ruta'] is None)
+    ck('las claves son las mismas que las de una deteccion con audio',
+       {'especie', 'especie_carpeta', 'confianza', 'fecha', 'hora',
+        'ruta'} <= set(r[0]))
+
+    ck('un CSV sin BOM tambien se lee',
+       len(_parsear_resumen(
+           CAB + chr(10) + '2026-05-02,07:41:00,X,73,,x.mp3,1' + chr(10),
+           '2026-05-02')) == 1)
+    ck('una fila con la fecha cambiada se descarta',
+       _parsear_resumen(csv('2026-05-03,07:41:00,X,73,,x.mp3,1'),
+                        '2026-05-02') == [])
+    ck('una confianza que no es numero se descarta',
+       _parsear_resumen(csv('2026-05-02,07:41:00,X,ochenta,,x.mp3,1'),
+                        '2026-05-02') == [])
+    ck('una fila con campos vacios se descarta',
+       _parsear_resumen(csv('2026-05-02,,,,,,'), '2026-05-02') == [])
+    ck('un CSV con solo encabezado no rompe',
+       _parsear_resumen(BOM + CAB + chr(10), '2026-05-02') == [])
+    ck('un archivo vacio no rompe', _parsear_resumen('', '2026-05-02') == [])
+    ck('basura que no es CSV no rompe',
+       _parsear_resumen('cualquier cosa', '2026-05-02') == [])
+    ck('una fila buena entre dos malas se rescata',
+       len(_parsear_resumen(csv(
+           '2026-05-02,,,,,,',
+           '2026-05-02,07:41:00,X,73,,x.mp3,1',
+           'basura'), '2026-05-02')) == 1)
+
     print('\n-- estado reconstruido del log (Tector 1.1) --')
     from servidor import drive as _d
 
