@@ -16,6 +16,9 @@ Documentacion viva en /docs cuando el servidor esta corriendo.
 """
 import io
 import zipfile
+import sys
+import threading
+import time
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -41,11 +44,52 @@ app.add_middleware(
 esquema_bearer = HTTPBearer(auto_error=False)
 
 
+def _calentar_una_vez():
+    """Deja en el cache los listados que pide la pantalla de cantos."""
+    try:
+        series = db.todos_los_dispositivos()
+    except Exception as e:
+        print(f'[calentador] no se pudo leer la base: {e}', file=sys.stderr)
+        return
+    for disp in series:
+        ruta = disp.get('drive_path')
+        if not ruta:
+            continue
+        try:
+            drive.fechas_con_detecciones(ruta, desde=disp.get('fecha_desde'))
+            drive.detecciones(ruta, limite=2000, desde=disp.get('fecha_desde'))
+        except Exception as e:
+            # Que Drive no responda no puede tumbar el hilo: se reintenta en
+            # la vuelta siguiente.
+            print(f'[calentador] {ruta}: {e}', file=sys.stderr)
+
+
+def _calentador():
+    """Mantiene caliente el cache de Drive, de fondo.
+
+    POR QUE: la pantalla de cantos pide TODAS las detecciones de una --de ese
+    unico listado salen sus tres vistas-- y cada carpeta de fecha son ~5,6 s
+    de rclone desde el telefono. En frio eso son decenas de segundos y la app
+    parece colgada; con timeout, directamente un 500.
+
+    La alternativa de fondo era rediseniar esa pantalla para pedir por dia y
+    no de una. Puede que en algun momento haya que hacerlo igual. Mientras
+    tanto esto lo vuelve inmediato sin tocar la interfaz.
+    """
+    while True:
+        _calentar_una_vez()
+        time.sleep(config.CALENTAR_CADA_S)
+
+
 @app.on_event('startup')
 def arrancar():
     for aviso in config.revisar():
         print(f'[tector-hub] AVISO: {aviso}')
     db.inicializar()
+    if config.CALENTAR_CADA_S > 0:
+        # Demonio: no debe impedir que el proceso termine.
+        threading.Thread(target=_calentador, daemon=True,
+                         name='calentador').start()
 
 
 # ---------- modelos ----------

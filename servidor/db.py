@@ -336,3 +336,13 @@ def set_fecha_desde(serie, fecha):
             'UPDATE dispositivos SET fecha_desde = ? WHERE serie = ?',
             (fecha, serie))
         return cur.rowcount > 0
+
+
+def todos_los_dispositivos():
+    """Todos los Tectors cargados. Lo usa el calentador de cache, que no
+    trabaja para un usuario en particular."""
+    with sesion() as con:
+        filas = con.execute(
+            'SELECT serie, drive_path, fecha_desde FROM dispositivos'
+        ).fetchall()
+        return [dict(f) for f in filas]

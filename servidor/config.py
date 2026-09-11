@@ -70,7 +70,21 @@ CARPETA_REPORTADOS = os.environ.get('TECTOR_CARPETA_REPORTADOS',
 
 # Cache en memoria de los listados de Drive. Sin esto, abrir el explorador de
 # la app dispara un rclone lsjson por pantalla, que tarda segundos.
-CACHE_SEGUNDOS = int(os.environ.get('TECTOR_CACHE_S', '120'))
+#
+# 900 y no 120: medido contra el Tector 1 real, un lsjson recursivo de UNA
+# carpeta de fecha tarda ~5,6 s desde el telefono (--fast-list no mejora
+# nada, se probo). La pantalla de cantos pide todas las fechas de una para
+# armar sus tres vistas, asi que en frio son decenas de segundos. Con el
+# cache largo eso se paga una sola vez.
+CACHE_SEGUNDOS = int(os.environ.get('TECTOR_CACHE_S', '900'))
+
+# Cada cuanto se refresca solo ese cache, en segundos. 0 lo apaga.
+#
+# Un cache largo por si solo no alcanza: el primero que abre la app despues
+# de que vencio se come la espera entera. Este hilo la paga por adelantado,
+# de fondo, para que en la practica siempre este caliente. Va por debajo de
+# CACHE_SEGUNDOS para que nunca haya una ventana fria.
+CALENTAR_CADA_S = int(os.environ.get('TECTOR_CALENTAR_S', '600'))
 
 # --- Registro de dispositivos ---
 # El endpoint que usan los Tectors para registrarse no lleva autenticacion:
