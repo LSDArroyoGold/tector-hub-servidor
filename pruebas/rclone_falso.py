@@ -134,17 +134,34 @@ def main():
         return 0
 
     if cmd in ('copy', 'copyto'):
-        origen, destino = resto[0], resto[1]
+        # Las banderas (--include, --transfers, --no-traverse...) se ignoran:
+        # aca solo importan origen y destino, que son los dos primeros
+        # argumentos que no empiezan con guion.
+        posicionales = [a for a in resto if not a.startswith('--')]
+        origen, destino = posicionales[0], posicionales[1]
         o = local(origen) if es_remoto(origen) else Path(origen)
         d = local(destino) if es_remoto(destino) else Path(destino)
+        if not o.exists():
+            print('source not found', file=sys.stderr)
+            return 3
+        if o.is_dir():
+            # "rclone copy carpeta destino" copia el CONTENIDO de la carpeta
+            # adentro de destino, saltando lo que ya esta. Es lo que usa el
+            # servidor para adelantar los audios de un dia.
+            for archivo in o.rglob('*'):
+                if not archivo.is_file() or archivo.suffix != '.mp3':
+                    continue
+                rel = archivo.relative_to(o)
+                dest = d / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                if not dest.exists():
+                    shutil.copy2(archivo, dest)
+            return 0
         if cmd == 'copy':
             d.mkdir(parents=True, exist_ok=True)
             d = d / o.name
         else:
             d.parent.mkdir(parents=True, exist_ok=True)
-        if not o.exists():
-            print('source not found', file=sys.stderr)
-            return 3
         shutil.copy2(o, d)
         return 0
 

@@ -90,6 +90,16 @@ CACHE_SEGUNDOS = int(os.environ.get('TECTOR_CACHE_S', '900'))
 # CACHE_SEGUNDOS para que nunca haya una ventana fria.
 CALENTAR_CADA_S = int(os.environ.get('TECTOR_CALENTAR_S', '600'))
 
+# --- Audio en disco ---
+# Los mp3 de los ultimos dias se bajan por adelantado a esta carpeta y se
+# sirven de ahi. Sin esto, cada play era un rclone cat en el momento: medido
+# entre 8 y 45 s desde el telefono, segun como estuviera Google. Con esto es
+# instantaneo para lo reciente, que es lo que la gente escucha.
+#
+# Un dia son ~40 archivos de ~440 KB. Con 7 dias, unos 150 MB por Tector.
+CACHE_AUDIO = RUTA_DB.parent / 'audio'
+AUDIO_DIAS_ADELANTADOS = int(os.environ.get('TECTOR_AUDIO_DIAS', '7'))
+
 # --- Registro de dispositivos ---
 # El endpoint que usan los Tectors para registrarse no lleva autenticacion:
 # un dispositivo recien flasheado no tiene ninguna credencial que presentar.

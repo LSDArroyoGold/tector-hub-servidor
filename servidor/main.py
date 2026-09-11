@@ -63,9 +63,15 @@ def _calentar_una_vez():
             # primera pantalla tarde 48 s o menos de uno.
             if drive.estado(ruta) is None:
                 drive.estado_heredado(ruta)
-            drive.fechas_con_detecciones(ruta, desde=desde)
+            fechas = drive.fechas_con_detecciones(ruta, desde=desde)
             drive.detecciones(ruta, limite=2000, desde=desde)
             drive.detecciones_completas(ruta, limite=20000, desde=desde)
+            # Y los audios de los ultimos dias, a disco, para que el play
+            # sea inmediato. Lo mas nuevo primero: si la vuelta se corta,
+            # lo que quedo bajado es lo que mas se escucha.
+            recientes = fechas[:config.AUDIO_DIAS_ADELANTADOS]
+            drive.adelantar_audio(ruta, recientes)
+            drive.podar_audio(ruta, set(recientes))
         except Exception as e:
             # Que Drive no responda no puede tumbar el hilo: se reintenta en
             # la vuelta siguiente.
@@ -345,7 +351,7 @@ def audio(ruta: str = Query(max_length=512),
         raise HTTPException(400, 'Ruta invalida.')
 
     try:
-        datos = drive.leer_binario(ruta)
+        datos = drive.leer_audio(ruta)
     except drive.ErrorDrive as e:
         raise HTTPException(404, f'No se pudo leer el audio: {e}')
 

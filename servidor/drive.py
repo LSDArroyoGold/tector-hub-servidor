@@ -24,6 +24,7 @@ import re
 import subprocess
 import sys
 import time
+from pathlib import Path
 from threading import Event, Lock
 
 from . import config
@@ -88,6 +89,64 @@ def escribir_texto(ruta, contenido):
     """rcat escribe desde stdin, sin archivo temporal en el servidor."""
     _correr(['rcat', _remoto(ruta)], entrada=contenido.encode('utf-8'))
     invalidar(ruta)
+
+
+def _ruta_cache_audio(ruta):
+    return config.CACHE_AUDIO / ruta
+
+
+def leer_audio(ruta):
+    """Bytes de un mp3: del disco si ya esta, si no de Drive (y se guarda).
+
+    La ruta viene validada por quien llama --tiene que caer dentro de la
+    carpeta del dispositivo--; aca solo se resuelve de donde sale.
+    """
+    local = _ruta_cache_audio(ruta)
+    if local.is_file():
+        return local.read_bytes()
+    datos = leer_binario(ruta)
+    try:
+        local.parent.mkdir(parents=True, exist_ok=True)
+        local.write_bytes(datos)
+    except OSError as e:
+        # Sin disco no hay cache, pero el audio igual se sirve.
+        print(f'[audio] no se pudo guardar {ruta}: {e}', file=sys.stderr)
+    return datos
+
+
+def adelantar_audio(drive_path, fechas):
+    """Baja a disco los mp3 de esas fechas, en lote.
+
+    Un "rclone copy" por carpeta de fecha, con varias transferencias en
+    paralelo: 40 archivos en una llamada, contra 40 llamadas de 8 s cada una
+    si se bajaran de a uno. rclone se saltea solo lo que ya esta.
+
+    Se llama desde el calentador, en segundo plano. Un dia que falle se
+    deja para la proxima vuelta.
+    """
+    for fecha in fechas:
+        origen = f'{drive_path}/Detecciones/{fecha}'
+        destino = _ruta_cache_audio(origen)
+        destino.mkdir(parents=True, exist_ok=True)
+        try:
+            _correr(['copy', _remoto(origen), str(destino),
+                     '--include', '*.mp3', '--transfers', '4',
+                     '--no-traverse'])
+        except ErrorDrive as e:
+            print(f'[audio] no se pudo adelantar {origen}: {e}',
+                  file=sys.stderr)
+
+
+def podar_audio(drive_path, conservar):
+    """Borra del disco las carpetas de fecha que ya no estan entre las que se
+    conservan. Solo toca la copia local: Drive no se toca nunca desde aca."""
+    raiz = _ruta_cache_audio(f'{drive_path}/Detecciones')
+    if not raiz.is_dir():
+        return
+    import shutil
+    for carpeta in raiz.iterdir():
+        if carpeta.is_dir() and carpeta.name not in conservar:
+            shutil.rmtree(carpeta, ignore_errors=True)
 
 
 def preservar(ruta_origen, nombre_destino):
