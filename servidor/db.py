@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS usuarios (
     nombre       TEXT NOT NULL,
     hash_clave   TEXT NOT NULL,
     activo       INTEGER NOT NULL DEFAULT 1,
-    creado       TEXT NOT NULL
+    creado       TEXT NOT NULL,
+    -- A donde mandar el reporte diario de sus Tectors. Vacio = no mandar.
+    reporte_email TEXT
 );
 
 CREATE TABLE IF NOT EXISTS dispositivos (
@@ -141,6 +143,10 @@ def inicializar():
                     con.execute('PRAGMA table_info(dispositivos)').fetchall()}
         if 'fecha_desde' not in columnas:
             con.execute('ALTER TABLE dispositivos ADD COLUMN fecha_desde TEXT')
+        col_usr = {f['name'] for f in
+                   con.execute('PRAGMA table_info(usuarios)').fetchall()}
+        if 'reporte_email' not in col_usr:
+            con.execute('ALTER TABLE usuarios ADD COLUMN reporte_email TEXT')
         col_rep = {f['name'] for f in
                    con.execute('PRAGMA table_info(reportes)').fetchall()}
         for col in ('especie_sugerida_nombre', 'destino_drive'):
@@ -372,3 +378,31 @@ def quitar_reporte(usuario_id, ident):
             return None
         con.execute('DELETE FROM reportes WHERE id = ?', (ident,))
         return dict(fila)
+
+
+def set_reporte_email(usuario_id, email):
+    with sesion() as con:
+        con.execute('UPDATE usuarios SET reporte_email = ? WHERE id = ?',
+                    (email or None, usuario_id))
+
+
+def emails_para_dispositivo(serie):
+    """Los mails de reporte diario de las cuentas que tienen ese Tector."""
+    with sesion() as con:
+        filas = con.execute(
+            'SELECT u.reporte_email FROM vinculos v '
+            'JOIN usuarios u ON u.id = v.usuario_id '
+            'WHERE v.serie = ? AND u.activo = 1 AND u.reporte_email IS NOT NULL '
+            "AND u.reporte_email != ''", (serie,)).fetchall()
+        return [f['reporte_email'] for f in filas]
+
+
+def dispositivos_con_apodo():
+    """Todos los Tectors con drive_path, con el apodo de su duenio si lo
+    tienen. Para el reporte diario, que corre para todos."""
+    with sesion() as con:
+        filas = con.execute(
+            'SELECT d.serie, d.drive_path, d.fecha_desde, v.apodo '
+            'FROM dispositivos d LEFT JOIN vinculos v ON v.serie = d.serie '
+            'WHERE d.drive_path IS NOT NULL').fetchall()
+        return [dict(f) for f in filas]

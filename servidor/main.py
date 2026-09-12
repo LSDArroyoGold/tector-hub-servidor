@@ -20,14 +20,14 @@ import sys
 import threading
 import time
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Path, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from . import auth, catalogo, config, db, drive, especies
+from . import auth, catalogo, config, correo, db, drive, especies, reporte_diario
 
 app = FastAPI(
     title='Tector Hub',
@@ -92,6 +92,12 @@ def _calentador():
     """
     while True:
         _calentar_una_vez()
+        # El reporte diario va a caballo de este mismo hilo: no hay cron en
+        # el telefono, y este ya pasa cada 10 minutos.
+        try:
+            _reportes_pendientes()
+        except Exception as e:
+            print(f'[reporte] {e}', file=sys.stderr)
         time.sleep(config.CALENTAR_CADA_S)
 
 
@@ -360,6 +366,91 @@ def audio(ruta: str = Query(max_length=512),
         media_type='audio/mpeg',
         headers={'Cache-Control': 'private, max-age=86400',
                  'Content-Disposition': f'inline; filename="{ruta.split("/")[-1]}"'})
+
+
+def _horas_del_dispositivo(disp):
+    try:
+        est = drive.estado(disp['drive_path']) or {}
+        return (_horas_de_ventana(est.get('horarios'))
+                or _horas_de_ventana(drive.horarios(disp['drive_path'])))
+    except drive.ErrorDrive:
+        return None
+
+
+@app.get('/dispositivos/{serie}/reporte', tags=['detecciones'])
+def reporte(serie: str = Path(pattern=r'^\d{4}$'),
+            fecha: str | None = Query(default=None,
+                                      pattern=r'^\d{4}-\d{2}-\d{2}$'),
+            usuario=Depends(usuario_actual)):
+    """El reporte diario en texto plano. Sin fecha, el de hoy."""
+    disp = dispositivo_propio(serie, usuario)
+    fecha = fecha or date.today().isoformat()
+    texto = reporte_diario.generar(disp, fecha, _horas_del_dispositivo(disp))
+    nombre = f'tector-{serie}-{fecha}.txt'
+    return Response(content=texto, media_type='text/plain; charset=utf-8',
+                    headers={'Content-Disposition': f'inline; filename="{nombre}"'})
+
+
+class ReporteEmail(BaseModel):
+    email: str = Field(default='', max_length=200)
+
+
+@app.get('/cuenta/reporte-diario', tags=['cuenta'])
+def leer_reporte_diario(usuario=Depends(usuario_actual)):
+    return {'email': usuario.get('reporte_email') or '',
+            'hora': config.REPORTE_HORA,
+            'correo_configurado': correo.configurado()}
+
+
+@app.put('/cuenta/reporte-diario', tags=['cuenta'])
+def guardar_reporte_diario(datos: ReporteEmail, usuario=Depends(usuario_actual)):
+    email = datos.email.strip()
+    if email and ('@' not in email or ' ' in email):
+        raise HTTPException(400, 'Ese mail no parece valido.')
+    db.set_reporte_email(usuario['id'], email)
+    return {'ok': True, 'email': email,
+            'aviso': None if (not email or correo.configurado()) else
+            'Queda guardado, pero el servidor todavia no tiene configurado '
+            'el envio de correo: no va a llegar hasta que se configure.'}
+
+
+def _reporte_del_dia(disp, fecha):
+    """Genera, guarda en disco, sube a Drive y manda por mail el reporte de
+    un Tector. Cada paso es independiente: que falle Drive no impide el
+    mail, y al reves."""
+    texto = reporte_diario.generar(disp, fecha, _horas_del_dispositivo(disp))
+    nombre = f'{fecha}.txt'
+
+    carpeta = config.CARPETA_REPORTES / disp['serie']
+    carpeta.mkdir(parents=True, exist_ok=True)
+    (carpeta / nombre).write_text(texto, encoding='utf-8')
+
+    try:
+        drive.escribir_texto(f'{disp["drive_path"]}/Reportes/{nombre}', texto)
+    except drive.ErrorDrive as e:
+        print(f'[reporte] no se pudo subir a Drive el de {disp["serie"]}: {e}',
+              file=sys.stderr)
+
+    apodo = disp.get('apodo') or f'Tector {disp["serie"]}'
+    correo.enviar(db.emails_para_dispositivo(disp['serie']),
+                  f'{apodo} · reporte del {fecha}', texto,
+                  adjunto=(f'tector-{disp["serie"]}-{fecha}.txt', texto))
+
+
+def _reportes_pendientes():
+    """Una vez por dia, pasada la hora configurada, el reporte de cada
+    Tector. La marca es el archivo en disco: si ya esta, ya se hizo."""
+    hoy = date.today().isoformat()
+    ahora = datetime.now().strftime('%H:%M')
+    if ahora < config.REPORTE_HORA:
+        return
+    for disp in db.dispositivos_con_apodo():
+        if (config.CARPETA_REPORTES / disp['serie'] / f'{hoy}.txt').exists():
+            continue
+        try:
+            _reporte_del_dia(disp, hoy)
+        except Exception as e:
+            print(f'[reporte] fallo el de {disp["serie"]}: {e}', file=sys.stderr)
 
 
 @app.get('/dispositivos/{serie}/estadisticas', tags=['detecciones'])

@@ -448,6 +448,34 @@ def main():
            'http ' + str(cod))
 
         print()
+        print('-- reporte diario en texto --')
+        cod, txt = pedir(base + '/dispositivos/4417/reporte', tk, crudo=True)
+        txt = txt.decode('utf-8') if isinstance(txt, bytes) else str(txt)
+        ck('el reporte del dia se genera', cod == 200, 'http ' + str(cod))
+        ck('es texto plano con el encabezado', txt.startswith('TECTOR HUB'))
+        ck('lleva el total del dia', 'Total: 3' in txt, txt[:200])
+        ck('lleva el ranking de especies', 'Rufous Hornero' in txt)
+        ck('lleva la tasa por hora grabada', 'por hora grabada' in txt)
+        ck('y el contexto de 30 dias', 'ULTIMOS 30 DIAS' in txt)
+        ck('sin fotos ni HTML', '<img' not in txt and 'http' not in txt.split('Generado')[0])
+        viejo9 = (date.today() - timedelta(days=9)).isoformat()
+        cod, txt2 = pedir(base + f'/dispositivos/4417/reporte?fecha={viejo9}', tk, crudo=True)
+        txt2 = txt2.decode('utf-8')
+        ck('un dia que solo existe como resumen tambien tiene reporte',
+           cod == 200 and 'Picui Ground Dove' in txt2)
+
+        cod, r = pedir(base + '/cuenta/reporte-diario', tk)
+        ck('la preferencia de mail arranca vacia', cod == 200 and r['email'] == '')
+        ck('y dice si el servidor puede mandar correo', 'correo_configurado' in r)
+        cod, r = pedir(base + '/cuenta/reporte-diario', tk, 'PUT', {'email': 'diego@ejemplo.org'})
+        ck('se guarda un mail', cod == 200 and r['email'] == 'diego@ejemplo.org')
+        ck('y avisa si no hay SMTP configurado', bool(r.get('aviso')))
+        cod, r = pedir(base + '/cuenta/reporte-diario', tk, 'PUT', {'email': 'no es un mail'})
+        ck('un mail invalido se rechaza', cod == 400, 'http ' + str(cod))
+        cod, r = pedir(base + '/cuenta/reporte-diario', tk, 'PUT', {'email': ''})
+        ck('vacio lo apaga', cod == 200 and r['email'] == '')
+
+        print()
         print('-- piso de fecha por dispositivo --')
         # El caso real: un Tector con detecciones anteriores a estar bien
         # instalado. Se dejan afuera sin borrar nada de Drive.

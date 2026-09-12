@@ -90,6 +90,21 @@ CACHE_SEGUNDOS = int(os.environ.get('TECTOR_CACHE_S', '900'))
 # CACHE_SEGUNDOS para que nunca haya una ventana fria.
 CALENTAR_CADA_S = int(os.environ.get('TECTOR_CALENTAR_S', '600'))
 
+# --- Reporte diario ---
+# A que hora (local del servidor) se genera el reporte del dia, se guarda,
+# se sube a Drive y se manda por mail. Despues de la ventana del atardecer,
+# que en el AMBA cierra alrededor de las 21.
+REPORTE_HORA = os.environ.get('TECTOR_REPORTE_HORA', '22:30')
+CARPETA_REPORTES = RUTA_DB.parent / 'reportes'
+
+# --- Correo (para el reporte diario). Sin esto, el reporte se genera y se
+# guarda igual, solo no viaja por mail. Ver servidor/correo.py. ---
+SMTP_HOST = os.environ.get('TECTOR_SMTP_HOST', '')
+SMTP_PUERTO = int(os.environ.get('TECTOR_SMTP_PUERTO', '587'))
+SMTP_USUARIO = os.environ.get('TECTOR_SMTP_USUARIO', '')
+SMTP_CLAVE = os.environ.get('TECTOR_SMTP_CLAVE', '')
+SMTP_DE = os.environ.get('TECTOR_SMTP_DE', '')
+
 # --- Audio en disco ---
 # Los mp3 de los ultimos dias se bajan por adelantado a esta carpeta y se
 # sirven de ahi. Sin esto, cada play era un rclone cat en el momento: medido
