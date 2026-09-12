@@ -415,6 +415,25 @@ def main():
            any(x.get('especie_sugerida_nombre') == 'Rufous Hornero'
                for x in r['reportes']))
 
+        # Deshacer un reporte: se va de la base y la copia se va de Drive.
+        equivocado = [x for x in r['reportes']
+                      if x.get('especie_sugerida_nombre') == 'Rufous Hornero'][0]
+        cod, _ = pedir(f"{base}/reportes/{equivocado['id']}", tk, 'DELETE')
+        ck('un reporte propio se puede deshacer', cod == 200, 'http ' + str(cod))
+        cod, r = pedir(base + '/reportes', tk)
+        ck('y desaparece de la lista',
+           all(x['id'] != equivocado['id'] for x in r['reportes']))
+        for _ in range(40):
+            if not (carpeta / equivocado['destino_drive']).exists():
+                break
+            time.sleep(0.25)
+        ck('y su copia se va de Drive',
+           not (carpeta / equivocado['destino_drive']).exists())
+        cod, _ = pedir(f"{base}/reportes/{equivocado['id']}", tk, 'DELETE')
+        ck('deshacerlo dos veces da 404', cod == 404, 'http ' + str(cod))
+        cod, _ = pedir(base + '/dispositivos/4417/estadisticas?dias=3650', tk)
+        ck('acepta el periodo "Todo" (3650 dias)', cod == 200, 'http ' + str(cod))
+
         print()
         print('-- los limites que pide la app de verdad --')
         # La pantalla de cantos pide limite=2000. El tope del endpoint estaba

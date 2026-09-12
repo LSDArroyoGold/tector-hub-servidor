@@ -359,3 +359,16 @@ def todos_los_dispositivos():
             'SELECT serie, drive_path, fecha_desde FROM dispositivos'
         ).fetchall()
         return [dict(f) for f in filas]
+
+
+def quitar_reporte(usuario_id, ident):
+    """Borra un reporte de la propia cuenta. Devuelve la fila borrada (para
+    saber que copia de Drive hay que sacar), o None si no existia o es ajeno."""
+    with sesion() as con:
+        fila = con.execute(
+            'SELECT * FROM reportes WHERE id = ? AND usuario_id = ?',
+            (ident, usuario_id)).fetchone()
+        if not fila:
+            return None
+        con.execute('DELETE FROM reportes WHERE id = ?', (ident,))
+        return dict(fila)

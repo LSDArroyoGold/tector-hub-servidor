@@ -364,7 +364,9 @@ def audio(ruta: str = Query(max_length=512),
 
 @app.get('/dispositivos/{serie}/estadisticas', tags=['detecciones'])
 def estadisticas(serie: str = Path(pattern=r'^\d{4}$'),
-                 dias: int = Query(default=30, ge=1, le=365),
+                 # 3650 (diez anios) es el 'Todo' de la app: con el piso de
+                 # fecha y la retencion que haya, es toda la historia.
+                 dias: int = Query(default=30, ge=1, le=3650),
                  usuario=Depends(usuario_actual)):
     """Las metricas del panel.
 
@@ -825,6 +827,25 @@ def reportar(datos: Reporte, serie: str = Path(pattern=r'^\d{4}$'),
 
     return {'ok': True, 'id': ident, 'destino_drive': destino,
             'especie_sugerida_nombre': sugerida_nombre}
+
+
+@app.delete('/reportes/{ident}', tags=['reportes'])
+def quitar_reporte(ident: int = Path(ge=1), usuario=Depends(usuario_actual)):
+    """Deshace un reporte propio.
+
+    Un reporte equivocado es peor que ninguno: la copia del audio en Drive
+    quedaria como material de reentrenamiento con la etiqueta MAL puesta por
+    una persona, que es justo lo que mas pesa. Asi que se borra de la base y
+    se borra la copia de Drive, en ese orden. Solo los reportes de la propia
+    cuenta.
+    """
+    fila = db.quitar_reporte(usuario['id'], ident)
+    if not fila:
+        raise HTTPException(404, 'No existe ese reporte, o no es tuyo.')
+    if fila.get('destino_drive'):
+        threading.Thread(target=drive.borrar_preservado,
+                         args=(fila['destino_drive'],), daemon=True).start()
+    return {'ok': True}
 
 
 @app.get('/reportes', tags=['reportes'])

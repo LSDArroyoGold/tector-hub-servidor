@@ -149,6 +149,21 @@ def podar_audio(drive_path, conservar):
             shutil.rmtree(carpeta, ignore_errors=True)
 
 
+def borrar_preservado(nombre_destino):
+    """Saca de Drive la copia de un audio reportado, cuando el reporte se
+    deshace. Best effort: si falla queda en el log, y exportar_reportes.py
+    cruza la base con Drive para encontrar huerfanos."""
+    remoto = config.RESPALDO_REMOTE or config.RCLONE_REMOTE
+    destino = f'{remoto}:{config.CARPETA_REPORTADOS}/{nombre_destino}'
+    try:
+        _correr(['deletefile', destino])
+        return True
+    except ErrorDrive as e:
+        print(f'[drive] NO se pudo borrar la copia reportada {destino}: {e}',
+              file=sys.stderr)
+        return False
+
+
 def preservar(ruta_origen, nombre_destino):
     """Copia un audio a la carpeta de reportados del proyecto.
 
@@ -470,7 +485,11 @@ def horarios(drive_path):
         if linea.startswith('#') or '=' not in linea:
             continue
         clave, valor = linea.split('=', 1)
-        datos[clave.strip()] = valor.strip()
+        # En MAYUSCULA siempre. La 2.1 escribe INICIO_AMANECER=07:15; la 1.1
+        # escribe "inicio_amanecer = 07:15" y "duracion_amanecer_sync=2". Sin
+        # normalizar, todo lo que lee esto veia un diccionario sin las claves
+        # que buscaba y el promedio por hora del Tector 1 salia en None.
+        datos[clave.strip().upper()] = valor.strip()
     return datos
 
 

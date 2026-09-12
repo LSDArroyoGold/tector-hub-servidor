@@ -15,23 +15,28 @@ from pathlib import Path
 
 _ARCHIVO = Path(__file__).with_name('catalogo.txt')
 _por_codigo = None
+_por_comun = None
 
 
 def _cargar():
     global _por_codigo
     if _por_codigo is not None:
         return
-    tabla = {}
+    global _por_comun
+    tabla, inverso = {}, {}
     try:
         for linea in _ARCHIVO.read_text(encoding='utf-8').splitlines():
             if not linea or linea.startswith('#'):
                 continue
             partes = linea.split('|')
             if len(partes) >= 3:
-                tabla[partes[0].strip()] = (partes[2].strip(), partes[1].strip())
+                codigo, cientifico, comun = (x.strip() for x in partes[:3])
+                tabla[codigo] = (comun, cientifico)
+                inverso[comun.lower()] = cientifico
     except OSError:
         pass
     _por_codigo = tabla
+    _por_comun = inverso
 
 
 def nombre(codigo):
@@ -47,3 +52,12 @@ def carpeta(codigo):
     espacios a guion bajo. None si el codigo no esta en el catalogo."""
     comun, _ = nombre(codigo)
     return comun.replace(' ', '_') if comun else None
+
+
+def cientifico_de_comun(nombre_comun):
+    """Nombre cientifico a partir del comun (como lo escribe el motor), o
+    None si no esta en el catalogo. Insensible a mayusculas."""
+    if not nombre_comun:
+        return None
+    _cargar()
+    return _por_comun.get(nombre_comun.strip().lower())

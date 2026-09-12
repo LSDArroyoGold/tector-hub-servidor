@@ -57,7 +57,7 @@ CACHE = config.RUTA_DB.parent / 'especies'
 # a resolver. Hace falta porque el cache es permanente y sobrevive a cambios
 # de codigo --sin esto, agregar un campo nuevo no se veria nunca en las
 # especies ya resueltas.
-VERSION_FICHA = 3
+VERSION_FICHA = 4
 
 
 def _pedir(parametros):
@@ -178,6 +178,15 @@ def resolver(nombre_comun):
 
     try:
         url, archivo, nombre_es = _buscar_en_wikipedia(nombre_comun)
+        # Si el nombre comun no da, probar con el cientifico. Pasa con nombres
+        # que Wikipedia escribe distinto o que apuntan a una desambiguacion
+        # (Grayish Baywing no salia; Agelaioides badius si). El cientifico
+        # viene del catalogo del motor, asi que es el mismo taxon.
+        if not url:
+            from . import catalogo
+            cientifico = catalogo.cientifico_de_comun(nombre_comun.replace('_', ' '))
+            if cientifico:
+                url, archivo, nombre_es = _buscar_en_wikipedia(cientifico)
     except Exception:
         # Fallo de red: NO se cachea. La proxima vez se reintenta.
         return None
