@@ -385,10 +385,56 @@ def reporte(serie: str = Path(pattern=r'^\d{4}$'),
     """El reporte diario en texto plano. Sin fecha, el de hoy."""
     disp = dispositivo_propio(serie, usuario)
     fecha = fecha or date.today().isoformat()
-    texto = reporte_diario.generar(disp, fecha, _horas_del_dispositivo(disp))
+    guardado = config.CARPETA_REPORTES / serie / f'{fecha}.txt'
+    if guardado.is_file():
+        # Un dia ya cerrado no cambia: se sirve el que se guardo esa noche.
+        texto = guardado.read_text(encoding='utf-8')
+    else:
+        texto = reporte_diario.generar(disp, fecha, _horas_del_dispositivo(disp))
     nombre = f'tector-{serie}-{fecha}.txt'
     return Response(content=texto, media_type='text/plain; charset=utf-8',
                     headers={'Content-Disposition': f'inline; filename="{nombre}"'})
+
+
+def _reportes_guardados(serie):
+    """Fechas (ISO) con reporte en disco, mas nuevas primero."""
+    carpeta = config.CARPETA_REPORTES / serie
+    if not carpeta.is_dir():
+        return []
+    return sorted((a.stem for a in carpeta.glob('????-??-??.txt')), reverse=True)
+
+
+@app.get('/dispositivos/{serie}/reportes-diarios', tags=['detecciones'])
+def reportes_diarios(serie: str = Path(pattern=r'^\d{4}$'),
+                     usuario=Depends(usuario_actual)):
+    """La carpeta de reportes guardados: que dias hay, y el ultimo entero,
+    para el panel de la app."""
+    disp = dispositivo_propio(serie, usuario)
+    fechas = _reportes_guardados(serie)
+    ultimo = None
+    if fechas:
+        ultimo = {'fecha': fechas[0],
+                  'texto': (config.CARPETA_REPORTES / serie / f'{fechas[0]}.txt')
+                  .read_text(encoding='utf-8')}
+    return {'fechas': fechas, 'ultimo': ultimo, 'hora': config.REPORTE_HORA}
+
+
+@app.get('/dispositivos/{serie}/reportes-diarios/todos', tags=['detecciones'])
+def reportes_diarios_zip(serie: str = Path(pattern=r'^\d{4}$'),
+                         usuario=Depends(usuario_actual)):
+    """Todos los reportes guardados, en un zip. Son texto: pesan nada."""
+    disp = dispositivo_propio(serie, usuario)
+    fechas = _reportes_guardados(serie)
+    if not fechas:
+        raise HTTPException(404, 'Todavia no hay reportes guardados.')
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(fechas):
+            z.write(config.CARPETA_REPORTES / serie / f'{f}.txt',
+                    arcname=f'tector-{serie}-{f}.txt')
+    return Response(content=buf.getvalue(), media_type='application/zip',
+                    headers={'Content-Disposition':
+                             f'attachment; filename="reportes-tector-{serie}.zip"'})
 
 
 class ReporteEmail(BaseModel):
@@ -442,15 +488,25 @@ def _reportes_pendientes():
     Tector. La marca es el archivo en disco: si ya esta, ya se hizo."""
     hoy = date.today().isoformat()
     ahora = datetime.now().strftime('%H:%M')
-    if ahora < config.REPORTE_HORA:
-        return
     for disp in db.dispositivos_con_apodo():
-        if (config.CARPETA_REPORTES / disp['serie'] / f'{hoy}.txt').exists():
-            continue
+        carpeta = config.CARPETA_REPORTES / disp['serie']
+        # Los dias pasados que no tengan reporte se generan cuando sea: ya
+        # cerraron, no cambian, y asi la carpeta arranca con historia en vez
+        # de vacia. El de HOY recien pasada la hora configurada.
         try:
-            _reporte_del_dia(disp, hoy)
-        except Exception as e:
-            print(f'[reporte] fallo el de {disp["serie"]}: {e}', file=sys.stderr)
+            fechas = drive.fechas_con_detecciones(disp['drive_path'],
+                                                  desde=disp.get('fecha_desde'))
+        except drive.ErrorDrive:
+            continue
+        pendientes = [f for f in fechas if f < hoy and not (carpeta / f'{f}.txt').exists()]
+        if ahora >= config.REPORTE_HORA and not (carpeta / f'{hoy}.txt').exists():
+            pendientes.insert(0, hoy)
+        for f in pendientes[:10]:   # de a tandas: cada uno son varias lecturas
+            try:
+                _reporte_del_dia(disp, f)
+            except Exception as e:
+                print(f'[reporte] fallo el de {disp["serie"]} {f}: {e}',
+                      file=sys.stderr)
 
 
 @app.get('/dispositivos/{serie}/estadisticas', tags=['detecciones'])

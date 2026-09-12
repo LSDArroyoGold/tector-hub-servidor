@@ -209,6 +209,10 @@ def main():
         'TECTOR_RCLONE_CONFIG': str(tmp / 'rclone.conf'),
         'TECTOR_DRIVE_FALSO': str(drive),
         'TECTOR_CACHE_S': '0',      # sin cache: cada pedido va al "Drive"
+        # El hilo de fondo (cache + reportes diarios) cada 3 s en vez de 10
+        # min: el dispositivo se registra DESPUES del arranque y la prueba
+        # necesita que el hilo lo vea en tiempo util.
+        'TECTOR_CALENTAR_S': '3',
         'PYTHONPATH': str(RAIZ),
     }
     (tmp / 'rclone.conf').write_text('', encoding='utf-8')
@@ -463,6 +467,27 @@ def main():
         txt2 = txt2.decode('utf-8')
         ck('un dia que solo existe como resumen tambien tiene reporte',
            cod == 200 and 'Picui Ground Dove' in txt2)
+
+        # La carpeta de guardados: el hilo genera los dias pasados solo. Se
+        # le da tiempo, y despues se pide la carpeta y el zip.
+        for _ in range(60):
+            cod, carp = pedir(base + '/dispositivos/4417/reportes-diarios', tk)
+            if cod == 200 and len(carp.get('fechas', [])) >= 2:
+                break
+            time.sleep(0.5)
+        ck('los dias pasados se guardan solos', cod == 200 and len(carp['fechas']) >= 2,
+           str(carp.get('fechas')))
+        ck('el ultimo viene entero para el panel',
+           bool(carp.get('ultimo')) and carp['ultimo']['texto'].startswith('TECTOR HUB'))
+        ck('el de hoy NO se guarda antes de la hora', date.today().isoformat() not in carp['fechas'])
+        cod, z = pedir(base + '/dispositivos/4417/reportes-diarios/todos', tk, crudo=True)
+        ck('descargar todos da un zip', cod == 200 and z and z[:2] == b'PK',
+           'http ' + str(cod))
+        z = z or b''
+        import zipfile as _zf, io as _io
+        nombres = _zf.ZipFile(_io.BytesIO(z)).namelist() if z else []
+        ck('con un .txt por dia', all(n.endswith('.txt') for n in nombres) and len(nombres) == len(carp['fechas']),
+           str(nombres))
 
         cod, r = pedir(base + '/cuenta/reporte-diario', tk)
         ck('la preferencia de mail arranca vacia', cod == 200 and r['email'] == '')
