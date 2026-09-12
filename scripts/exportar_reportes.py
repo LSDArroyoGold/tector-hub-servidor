@@ -28,8 +28,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from servidor import db  # noqa: E402
 
 COLUMNAS = ['id', 'creado', 'usuario', 'serie', 'tipo', 'especie_detectada',
-            'confianza', 'especie_sugerida', 'fecha_deteccion', 'comentario',
-            'ruta']
+            'confianza', 'especie_sugerida', 'especie_sugerida_nombre',
+            'fecha_deteccion', 'comentario', 'ruta', 'destino_drive']
 
 
 def main():

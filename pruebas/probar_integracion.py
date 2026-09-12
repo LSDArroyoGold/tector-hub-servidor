@@ -372,15 +372,41 @@ def main():
         cod, r = pedir(base + '/dispositivos/4417/reportes', tk, 'POST',
                        {'ruta': det['ruta'], 'tipo': 'otra_conocida',
                         'especie_sugerida': 'rufhor2'})
-        ck('el audio reportado se preserva', cod == 200 and r.get('audio_conservado'))
-        guardados = list((drive / 'Tector Hub' / 'reportados').rglob('*.mp3')) \
-            if (drive / 'Tector Hub' / 'reportados').exists() else []
-        ck('la copia quedo en la carpeta del proyecto', len(guardados) >= 1,
+        ck('responde de inmediato, sin esperar a Drive',
+           cod == 200 and bool(r.get('destino_drive')), str(r))
+        ck('traduce el codigo a nombre',
+           r.get('especie_sugerida_nombre') == 'Rufous Hornero',
+           str(r.get('especie_sugerida_nombre')))
+        # La copia va en segundo plano: se le da unos segundos.
+        carpeta = drive / 'Tector Hub' / 'reportados'
+        guardados = []
+        for _ in range(40):
+            guardados = list(carpeta.rglob('*.mp3')) if carpeta.exists() else []
+            if len(guardados) >= 2:
+                break
+            time.sleep(0.25)
+        ck('la copia quedo en la carpeta del proyecto', len(guardados) >= 2,
            str(len(guardados)))
         ck('ordenada por tipo de error',
            any('otra_conocida' in str(g.parent) for g in guardados))
+        # Lo que importa para reentrenar: la carpeta es la etiqueta CORRECTA,
+        # la que dijo la persona, no la que creyo el motor.
+        ck('y bajo la especie CORRECTA, no la que dijo el motor',
+           any(g.parent.name == 'Rufous_Hornero' for g in guardados),
+           str([str(g.relative_to(carpeta)) for g in guardados]))
+        ck('el nombre del archivo conserva lo que creyo el motor',
+           any(det['especie'].replace(' ', '_') in g.name for g in guardados))
         ck('y sobrevive si el equipo borra el original',
-           guardados and guardados[0].read_bytes().startswith(b'ID3'))
+           bool(guardados) and guardados[0].read_bytes().startswith(b'ID3'))
+        cod, r = pedir(base + '/dispositivos/4417/reportes', tk, 'POST',
+                       {'ruta': det['ruta'], 'tipo': 'otra_conocida',
+                        'especie_sugerida': 'noexiste9'})
+        ck('un codigo de especie desconocido se rechaza', cod == 400,
+           'http ' + str(cod))
+        cod, r = pedir(base + '/reportes', tk)
+        ck('la base guarda el nombre de la sugerida, no solo el codigo',
+           any(x.get('especie_sugerida_nombre') == 'Rufous Hornero'
+               for x in r['reportes']))
 
         print()
         print('-- los limites que pide la app de verdad --')

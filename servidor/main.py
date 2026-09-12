@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from . import auth, config, db, drive, especies
+from . import auth, catalogo, config, db, drive, especies
 
 app = FastAPI(
     title='Tector Hub',
@@ -721,14 +721,23 @@ def reportar(datos: Reporte, serie: str = Path(pattern=r'^\d{4}$'),
     nombre = datos.ruta.split('/')[-1]
     m = drive.PATRON_DETECCION.match(nombre)
 
-    # El audio se preserva ANTES de guardar el reporte. Si se hiciera al
-    # reves y la copia fallara, quedaria un reporte apuntando a un audio que
-    # se va a borrar solo, y nadie se enteraria hasta querer reentrenar.
-    #
-    # El nombre del destino lleva el tipo de reporte adelante: la carpeta se
-    # vuelve navegable por categoria de error sin abrir la base.
-    conservado = drive.preservar(
-        datos.ruta, f'{datos.tipo}/{serie}_{nombre}')
+    # La especie que la persona dice que era, con nombre. La app manda el
+    # codigo eBird; sin traducirlo, la correccion --que es lo unico que vale
+    # para reentrenar-- quedaba solo en la base como "rufhor2" y el audio se
+    # archivaba en Drive bajo la especie EQUIVOCADA, la que dijo el motor.
+    sugerida_nombre, sugerida_cientifico = catalogo.nombre(datos.especie_sugerida)
+    if datos.tipo == 'otra_conocida' and not sugerida_nombre:
+        raise HTTPException(400, 'No conozco esa especie.')
+
+    # Donde va el audio en Drive. La carpeta es la ETIQUETA CORRECTA:
+    #   reportados/otra_conocida/Rufous_Hornero/0001_American_Kestrel-84-....mp3
+    # La subcarpeta dice lo que ES; el nombre del archivo conserva lo que el
+    # motor creyo. Asi la carpeta se puede usar directo como set de
+    # reentrenamiento, y sigue siendo evidente cual fue el error.
+    if sugerida_nombre:
+        destino = f'{datos.tipo}/{catalogo.carpeta(datos.especie_sugerida)}/{serie}_{nombre}'
+    else:
+        destino = f'{datos.tipo}/{serie}_{nombre}'
 
     ident = db.guardar_reporte(usuario['id'], serie, {
         'ruta': datos.ruta,
@@ -737,9 +746,21 @@ def reportar(datos: Reporte, serie: str = Path(pattern=r'^\d{4}$'),
         'fecha_deteccion': f'{m.group("fecha")} {m.group("hora")}' if m else None,
         'tipo': datos.tipo,
         'especie_sugerida': datos.especie_sugerida,
+        'especie_sugerida_nombre': sugerida_nombre,
         'comentario': (datos.comentario or '').strip() or None,
+        'destino_drive': destino,
     })
-    return {'ok': True, 'id': ident, 'audio_conservado': conservado}
+
+    # La copia a Drive va en segundo plano. Antes se hacia antes de
+    # responder, y con la cuota de Google eran entre 8 y 40 segundos con la
+    # persona mirando un boton que no hacia nada. Si la copia falla queda en
+    # el log del servidor con todas las letras; exportar_reportes.py cruza la
+    # base con Drive para encontrar los que faltan.
+    threading.Thread(target=drive.preservar, args=(datos.ruta, destino),
+                     daemon=True, name=f'preservar-{ident}').start()
+
+    return {'ok': True, 'id': ident, 'destino_drive': destino,
+            'especie_sugerida_nombre': sugerida_nombre}
 
 
 @app.get('/reportes', tags=['reportes'])

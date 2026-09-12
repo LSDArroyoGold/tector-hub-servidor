@@ -91,6 +91,12 @@ CREATE TABLE IF NOT EXISTS reportes (
     fecha_deteccion    TEXT,
     tipo               TEXT NOT NULL,
     especie_sugerida   TEXT,
+    -- El nombre comun de la sugerida, resuelto del catalogo al reportar.
+    -- Se guarda ademas del codigo para que la base sea legible sin el
+    -- catalogo a mano.
+    especie_sugerida_nombre TEXT,
+    -- Donde quedo (o deberia haber quedado) la copia del audio en Drive.
+    destino_drive      TEXT,
     comentario         TEXT,
     creado             TEXT NOT NULL
 );
@@ -135,6 +141,11 @@ def inicializar():
                     con.execute('PRAGMA table_info(dispositivos)').fetchall()}
         if 'fecha_desde' not in columnas:
             con.execute('ALTER TABLE dispositivos ADD COLUMN fecha_desde TEXT')
+        col_rep = {f['name'] for f in
+                   con.execute('PRAGMA table_info(reportes)').fetchall()}
+        for col in ('especie_sugerida_nombre', 'destino_drive'):
+            if col not in col_rep:
+                con.execute(f'ALTER TABLE reportes ADD COLUMN {col} TEXT')
 
 
 # ---------- dispositivos ----------
@@ -279,11 +290,13 @@ def guardar_reporte(usuario_id, serie, datos):
     with sesion() as con:
         cur = con.execute(
             'INSERT INTO reportes (serie, usuario_id, ruta, especie_detectada, '
-            'confianza, fecha_deteccion, tipo, especie_sugerida, comentario, '
-            'creado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'confianza, fecha_deteccion, tipo, especie_sugerida, '
+            'especie_sugerida_nombre, destino_drive, comentario, creado) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             (serie, usuario_id, datos['ruta'], datos.get('especie_detectada'),
              datos.get('confianza'), datos.get('fecha_deteccion'),
              datos['tipo'], datos.get('especie_sugerida'),
+             datos.get('especie_sugerida_nombre'), datos.get('destino_drive'),
              datos.get('comentario'), ahora()))
         return cur.lastrowid
 
