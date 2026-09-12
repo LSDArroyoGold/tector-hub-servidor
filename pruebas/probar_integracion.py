@@ -294,6 +294,13 @@ def main():
         # audio ya no esta.
         ck('calcula estadisticas sobre datos reales', r['total'] == 12, str(r['total']))
         ck('el histograma tiene 24 horas', len(r['histograma_horas']) == 24)
+        # Ventanas del drive falso: 2 h + 2 h = 4 h/dia. 3 dias con audio (9)
+        # + 1 dia solo de resumen (3) = 4 dias con datos, 12 detecciones.
+        ck('informa las horas de grabacion por dia', r.get('horas_grabacion_por_dia') == 4.0,
+           str(r.get('horas_grabacion_por_dia')))
+        ck('promedio por hora = total / (dias * horas)',
+           r.get('promedio_por_hora') == round(12 / (4 * 4.0), 1),
+           str(r.get('promedio_por_hora')))
         ck('cuenta 5 especies (3 con audio + 2 solo en resumen)',
            r['especies_distintas'] == 5, str(r['especies_distintas']))
 

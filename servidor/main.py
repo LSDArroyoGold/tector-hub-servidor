@@ -407,10 +407,28 @@ def estadisticas(serie: str = Path(pattern=r'^\d{4}$'),
     dias_con_datos = len(por_fecha) or 1
     confianzas = [d['confianza'] for d in recientes]
 
+    # Promedio POR HORA DE GRABACION, no por dia. El "por dia" depende de la
+    # duracion de ventana que eligio el usuario: un Tector con ventanas de
+    # 3 h y otro con ventanas de 1 h no son comparables por dia, y ademas el
+    # numero cambia solo si alguien toca la configuracion. Por hora grabada
+    # es una tasa real. Se usan las ventanas configuradas HOY; si cambiaron
+    # en el periodo, es una aproximacion, y se dice cuantas horas se tomaron.
+    # Primero lo que el equipo dice que corre (estado.json); si no publica
+    # estado --un 1.1--, lo que la app le escribio (config_horarios.txt).
+    try:
+        est = drive.estado(disp['drive_path']) or {}
+        horas_dia = _horas_de_ventana(est.get('horarios'))             or _horas_de_ventana(drive.horarios(disp['drive_path']))
+    except drive.ErrorDrive:
+        horas_dia = None
+    promedio_hora = (round(len(recientes) / (dias_con_datos * horas_dia), 1)
+                     if horas_dia else None)
+
     return {
         'dias': dias,
         'total': len(recientes),
         'promedio_por_dia': round(len(recientes) / dias_con_datos, 1),
+        'promedio_por_hora': promedio_hora,
+        'horas_grabacion_por_dia': horas_dia,
         'especies_distintas': len(por_especie),
         'histograma_horas': [por_hora.get(h, 0) for h in range(24)],
         'top_especies': [{'especie': e, 'detecciones': n}
@@ -484,6 +502,52 @@ def descargar(serie: str = Path(pattern=r'^\d{4}$'),
                  'Content-Length': str(buf.tell())})
 
 # ---------- horarios ----------
+
+def _horas_de_ventana(h):
+    """Cuantas horas por dia graba un Tector, segun su config_horarios.txt.
+
+    Con AUTO_SYNC=ON son las duraciones configuradas; con OFF, la diferencia
+    entre inicio y fin de cada ventana. None si no se puede saber.
+    """
+    def _dif(ini, fin):
+        try:
+            hi, mi = map(int, ini.split(':'))
+            hf, mf = map(int, fin.split(':'))
+        except (AttributeError, ValueError):
+            return None
+        d = (hf * 60 + mf) - (hi * 60 + mi)
+        if d < 0:
+            d += 24 * 60
+        return d / 60
+
+    if not h:
+        return None
+    # Acepta las dos formas: la de config_horarios.txt (claves en mayuscula,
+    # AUTO_SYNC=ON) y la de estado.json (anidada, auto_sync booleano).
+    if 'amanecer' in h and isinstance(h.get('amanecer'), dict):
+        auto = bool(h.get('auto_sync'))
+        dur_a, dur_b = h.get('duracion_amanecer_h'), h.get('duracion_atardecer_h')
+        ini_a, fin_a = h['amanecer'].get('inicio'), h['amanecer'].get('fin')
+        ini_b, fin_b = (h.get('atardecer') or {}).get('inicio'), (h.get('atardecer') or {}).get('fin')
+    else:
+        auto = str(h.get('AUTO_SYNC', '')).upper() == 'ON'
+        dur_a, dur_b = h.get('DURACION_AMANECER_SYNC'), h.get('DURACION_ATARDECER_SYNC')
+        ini_a, fin_a = h.get('INICIO_AMANECER'), h.get('FIN_AMANECER')
+        ini_b, fin_b = h.get('INICIO_ATARDECER'), h.get('FIN_ATARDECER')
+
+    total = None
+    if auto:
+        try:
+            total = float(dur_a or 0) + float(dur_b or 0)
+        except (TypeError, ValueError):
+            total = None
+    if not total:
+        a = _dif(ini_a, fin_a)
+        b = _dif(ini_b, fin_b)
+        if a is not None or b is not None:
+            total = (a or 0) + (b or 0)
+    return total if total else None
+
 
 def _sumar(hhmm, horas):
     h, m = (int(x) for x in hhmm.split(':'))
