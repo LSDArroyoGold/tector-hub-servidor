@@ -264,7 +264,17 @@ Nada de esto bloquea el lanzamiento; está acá para que no se descubra solo.
 | El Tector 2 no se apaga solo | Falta el circuito de corte de energía; la Pi queda encendida. Es anterior a todo esto y está documentado en `set_wake_rtc.py` y el README de la 2.1. |
 | Un Drive por usuario | Para cuando haya Tectors de terceros. Hoy todo va a la cuenta del laboratorio. |
 
-## PENDIENTE URGENTE: client_id propio de Google (necesita a Tomás)
+## client_id propio de Google — HECHO el 12/9/2026
+
+El servidor usa un cliente OAuth propio del proyecto `LSD-Tector` de Google
+Cloud, llamado `tector-hub-servidor` (aparte del `rclone` que usan los
+Tectors, para poder rotar uno sin tocar el otro). Resultado medido en frío:
+`/dispositivos` 54 s → 0,3 s, cantos 60-150 s → 11 s, estadísticas 62 s → 8 s,
+audio 8-45 s → 1,3 s. Cero eventos de `rateLimitExceeded`.
+
+Queda de referencia cómo se hizo, por si hay que repetirlo:
+
+### Cómo se hizo (referencia)
 
 El 11/9 a la noche se confirmó midiendo que **la lentitud de la app viene de
 la cuota de Google**, no del teléfono ni del código:
@@ -297,8 +307,8 @@ solución es tener cuota propia. Y ese mismo `client_id` **se retira durante
    teléfono con esas credenciales. Es el mismo baile del navegador de la
    instalación, una vez.
 
-**Después, lo mismo en los Tectors.** Los equipos suben con el mismo
-`client_id` compartido y sufren la misma cuota (y el mismo retiro). Diego
+**Los Tectors ya usan un cliente propio** (`rclone`, del mismo proyecto,
+creado por Diego el 23/8). Si alguno todavía usara el `client_id` compartido y sufren la misma cuota (y el mismo retiro). Diego
 tiene que poner `client_id` y `client_secret` en el `rclone.conf` de cada uno
 (`/home/lsd/.config/rclone/rclone.conf`) y reautorizar. Ese archivo no se
 sincroniza por git a propósito.
