@@ -536,22 +536,6 @@ def estadisticas(serie: str = Path(pattern=r'^\d{4}$'),
     por_especie = Counter(d['especie'] for d in recientes)
     por_fecha = Counter(d['fecha'] for d in recientes)
 
-    vistas_antes = {d['especie'] for d in todas
-                    if d['fecha'] not in fechas_ordenadas}
-    nuevas = [
-        {'especie': d['especie'], 'fecha': d['fecha'], 'hora': d['hora'],
-         'confianza': d['confianza'], 'ruta': d['ruta'],
-         # Un hallazgo recuperado de un resumen no tiene audio para escuchar.
-         'desde_resumen': bool(d.get('desde_resumen'))}
-        for d in sorted(recientes, key=lambda x: (x['fecha'], x['hora']))
-        if d['especie'] not in vistas_antes
-    ]
-    # Solo la primera aparicion de cada especie nueva.
-    destacados, ya = [], set()
-    for n in reversed(nuevas):
-        if n['especie'] not in ya:
-            ya.add(n['especie'])
-            destacados.append(n)
 
     dias_con_datos = len(por_fecha) or 1
     confianzas = [d['confianza'] for d in recientes]
@@ -586,7 +570,6 @@ def estadisticas(serie: str = Path(pattern=r'^\d{4}$'),
                       for f in sorted(por_fecha)],
         'confianza_media': round(sum(confianzas) / len(confianzas), 1)
         if confianzas else None,
-        'hallazgos': destacados[:5],
         # Dias que entran en el calculo pero de los que ya no queda audio.
         # La app lo dice, para que un numero que no cierra con lo que se ve
         # en el explorador tenga una explicacion a la vista.
