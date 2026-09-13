@@ -360,6 +360,47 @@ def main():
         ck('y con el formato que espera el dispositivo',
            'AUTO_SYNC=OFF' in escrito and 'DURACION_AMANECER_SYNC=1.5' in escrito)
 
+        # Coordenadas por el mismo archivo, y la lectura las devuelve.
+        cod, r = pedir(base + '/dispositivos/4417/horarios', tk, 'PUT', {
+            'auto_sync': True, 'inicio_amanecer': '07:30', 'duracion_amanecer_h': 2,
+            'inicio_atardecer': '18:00', 'duracion_atardecer_h': 2,
+            'lat': -34.6131, 'lon': -58.3772})
+        escrito = (drive / 'Tector 2' / 'config_horarios.txt').read_text(encoding='utf-8')
+        ck('las coordenadas se escriben en config_horarios.txt',
+           'LAT=-34.6131' in escrito and 'LON=-58.3772' in escrito)
+        cod, r = pedir(base + '/dispositivos/4417/horarios', tk)
+        ck('y se leen de vuelta', r.get('coordenadas') == {'lat': -34.6131, 'lon': -58.3772},
+           str(r.get('coordenadas')))
+        ck('un 2.1 se declara como 2.1', r.get('firmware') == '2.1')
+
+        # UN 1.1 LEE OTRO DIALECTO. Con la plantilla de la 2.1 el equipo no
+        # sabia a que hora cerrar la ventana: sus awk buscan "fin_amanecer"
+        # en minuscula. Se da de alta un heredado y se comprueba lo escrito.
+        subprocess.run([sys.executable, '-m', 'scripts.precargar_serie', '0001',
+                        '--heredado', '--drive-path', 'Tector 1'],
+                       cwd=RAIZ, env=entorno, check=True, capture_output=True)
+        (drive / 'Tector 1' / 'Detecciones').mkdir(parents=True, exist_ok=True)
+        cod, r = pedir(base + '/dispositivos/vincular', tk, 'POST', {'serie': '0001'})
+        ck('se vincula el 1.1 heredado', cod == 200, 'http ' + str(cod))
+        cod, r = pedir(base + '/dispositivos/0001/horarios', tk, 'PUT', {
+            'auto_sync': True, 'inicio_amanecer': '07:14', 'duracion_amanecer_h': 2,
+            'inicio_atardecer': '19:03', 'duracion_atardecer_h': 2,
+            'offset_amanecer_min': 20, 'offset_atardecer_min': 20,
+            'lat': -34.6, 'lon': -58.4})
+        ck('guardar horarios de un 1.1 responde bien', cod == 200, 'http ' + str(cod))
+        e11 = (drive / 'Tector 1' / 'config_horarios.txt').read_text(encoding='utf-8')
+        ck('para un 1.1 se escribe en SU dialecto (minusculas con espacios)',
+           'inicio_amanecer = 07:14' in e11 and 'fin_amanecer = 09:14' in e11, e11[:160])
+        ck('con las duraciones como las lee calcular_horarios.py',
+           'duracion_amanecer_sync=2' in e11 and 'offset_atardecer_sync=20' in e11)
+        ck('y AUTO_SYNC como lo lee auto_sync_horarios.sh', 'AUTO_SYNC=ON' in e11)
+        ck('y NADA en mayusculas de la 2.1 que lo confunda', 'INICIO_AMANECER' not in e11)
+        ck('las coordenadas tambien, sin espacios', 'LAT=-34.6' in e11 and 'LON=-58.4' in e11)
+        cod, r = pedir(base + '/dispositivos/0001/horarios', tk)
+        ck('la lectura de un 1.1 sale de su config_horarios.txt',
+           r['en_drive'].get('INICIO_AMANECER') == '07:14' and r['en_dispositivo'] is None)
+        ck('y se declara como 1.1', r.get('firmware') == '1.1')
+
         print('\n-- escritura: BirdWeather --')
         cod, r = pedir(base + '/dispositivos/4417/birdweather', tk, 'PUT',
                        {'token': 'a3f9c0de-1234'})

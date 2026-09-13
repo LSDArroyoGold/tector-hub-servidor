@@ -147,6 +147,11 @@ class Horarios(BaseModel):
     inicio_atardecer: str = Field(pattern=r'^\d{2}:\d{2}$')
     duracion_atardecer_h: float = Field(gt=0, le=12)
     offset_amanecer_min: int = Field(default=0, ge=-180, le=180)
+    # Coordenadas del equipo, opcionales. Si van, el Tector las usa para
+    # calcular amanecer y atardecer en vez de las que se cargaron al
+    # instalarlo. Viajan en el mismo config_horarios.txt.
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
     offset_atardecer_min: int = Field(default=0, ge=-180, le=180)
 
 
@@ -691,12 +696,27 @@ def _sumar(hhmm, horas):
 def leer_horarios(serie: str = Path(pattern=r'^\d{4}$'),
                   usuario=Depends(usuario_actual)):
     disp = dispositivo_propio(serie, usuario)
+    en_drive = drive.horarios(disp['drive_path'])
+    est = drive.estado(disp['drive_path']) or {}
+    # Coordenadas: las que la app escribio (en_drive), o las que el equipo
+    # publica en estado.json (2.1). Un 1.1 sin coordenadas cargadas desde la
+    # app no las publica en ningun lado: van en None y la app lo dice.
+    ubic = est.get('ubicacion') or {}
+    lat = en_drive.get('LAT') or ubic.get('lat')
+    lon = en_drive.get('LON') or ubic.get('lon')
+    try:
+        lat, lon = (float(lat), float(lon)) if lat and lon else (None, None)
+    except ValueError:
+        lat, lon = None, None
     return {
         # Lo que la app escribio en Drive.
-        'en_drive': drive.horarios(disp['drive_path']),
+        'en_drive': en_drive,
         # Lo que el dispositivo esta corriendo de verdad. Pueden diferir
         # mientras haya un cambio pendiente de aplicarse.
-        'en_dispositivo': (drive.estado(disp['drive_path']) or {}).get('horarios'),
+        'en_dispositivo': est.get('horarios'),
+        'coordenadas': {'lat': lat, 'lon': lon},
+        # Si es un 1.1, config_horarios.txt se escribe en su dialecto.
+        'firmware': '1.1' if str(disp.get('id_hardware') or '').startswith('heredado:') else '2.1',
     }
 
 
@@ -725,7 +745,9 @@ def guardar_horarios(datos: Horarios, serie: str = Path(pattern=r'^\d{4}$'),
         'fin_amanecer': fin_amanecer,
         'inicio_atardecer': datos.inicio_atardecer,
         'fin_atardecer': fin_atardecer,
-    })
+        'lat': datos.lat,
+        'lon': datos.lon,
+    }, dialecto='1.1' if str(disp.get('id_hardware') or '').startswith('heredado:') else '2.1')
 
     estado = drive.estado(disp['drive_path']) or {}
     proxima = (estado.get('proxima_ventana') or {}).get('hora')

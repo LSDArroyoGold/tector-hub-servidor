@@ -752,19 +752,52 @@ INICIO_AMANECER={inicio_amanecer}
 FIN_AMANECER={fin_amanecer}
 INICIO_ATARDECER={inicio_atardecer}
 FIN_ATARDECER={fin_atardecer}
-"""
+{coordenadas}"""
 
 
-def escribir_horarios(drive_path, valores):
+# El mismo archivo, en el dialecto de LSD-Tector1.1. NO es cosmetico: la 1.1
+# lee las claves en minuscula --"inicio_amanecer = 08:18" con espacios, y
+# "duracion_amanecer_sync=2" sin ellos-- y sus awk no matchean las
+# mayusculas. Con la plantilla de la 2.1, el equipo no sabia a que hora
+# cerrar la ventana. Se encontro el 13/9 ANTES de que alguien tocara
+# "Aplicar" para el Tector 1, de puro milagro.
+#
+# lat/lon van al final, sin espacios, para que el leer_config() de
+# calcular_horarios.py (que busca "clave=") las encuentre.
+PLANTILLA_HORARIOS_11 = """# Escrito por Tector Hub el {sello}.
+# Formato de LSD-Tector1.1: el equipo lo baja de Drive al cerrar cada ventana.
+inicio_amanecer = {inicio_amanecer}
+fin_amanecer = {fin_amanecer}
+inicio_atardecer = {inicio_atardecer}
+fin_atardecer = {fin_atardecer}
+AUTO_SYNC={auto_sync}
+duracion_amanecer_sync={duracion_amanecer}
+offset_amanecer_sync={offset_amanecer}
+duracion_atardecer_sync={duracion_atardecer}
+offset_atardecer_sync={offset_atardecer}
+{coordenadas}"""
+
+
+def escribir_horarios(drive_path, valores, dialecto='2.1'):
     """Escribe config_horarios.txt entero, con el formato exacto que esperan
-    los awk del dispositivo.
+    los awk del dispositivo. `dialecto` es '2.1' o '1.1': los dos firmwares
+    leen el mismo archivo con claves distintas.
 
     Aca SI se reescribe el archivo completo, a diferencia de
     config_general.txt: este no guarda ningun estado del equipo, solo la
     configuracion que la app controla. Reescribirlo entero evita tener que
     hacer sed remoto sobre Drive."""
     from datetime import datetime
-    contenido = PLANTILLA_HORARIOS.format(
-        sello=datetime.now().strftime('%d/%m/%Y %H:%M'), **valores)
+    lat, lon = valores.get('lat'), valores.get('lon')
+    if lat is not None and lon is not None:
+        coords = (f'# Coordenadas puestas desde la app. Si estan, el equipo las usa\n'
+                  f'# para calcular amanecer y atardecer en vez de las de instalacion.\n'
+                  f'LAT={lat}\nLON={lon}\n')
+    else:
+        coords = ''
+    plantilla = PLANTILLA_HORARIOS_11 if dialecto == '1.1' else PLANTILLA_HORARIOS
+    contenido = plantilla.format(
+        sello=datetime.now().strftime('%d/%m/%Y %H:%M'), coordenadas=coords,
+        **{k: v for k, v in valores.items() if k not in ('lat', 'lon')})
     escribir_texto(f'{drive_path}/config_horarios.txt', contenido)
     return contenido
